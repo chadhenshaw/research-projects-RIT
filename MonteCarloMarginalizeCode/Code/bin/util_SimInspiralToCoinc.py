@@ -6,7 +6,7 @@ import argparse
 import json
 
 
-def ilwd_base():
+def ilwd_base(arg=None):
     return 0
 try:
     from  glue.ligolw import ilwd
@@ -112,7 +112,11 @@ for indx in range(len(opts.ifo)):
     sngl.mchirp = lalsimutils.mchirp(sngl.mass1,sngl.mass2)
     sngl.eta = lalsimutils.symRatio(sngl.mass1,sngl.mass2)
     sngl.coa_phase = 0.
+    sngl.spin1x = P.s1x
+    sngl.spin1y = P.s1y
     sngl.spin1z = P.s1z
+    sngl.spin2x = P.s2x
+    sngl.spin2y = P.s2y
     sngl.spin2z = P.s2z
     sngl.eff_distance = P.dist/(1e6*lal.PC_SI)
     sngl.snr = 20.  # made up, needed for some algorithms to work

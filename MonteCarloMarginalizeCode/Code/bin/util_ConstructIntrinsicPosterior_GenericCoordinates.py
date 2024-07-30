@@ -879,6 +879,7 @@ prior_map  = { "mtot": M_prior, "q":q_prior, "s1z":s_component_uniform_prior, "s
     # Other priors
     'eccentricity':eccentricity_prior,
     'chi_pavg':precession_prior,
+    'chi_prms':precession_prior,
     'mu1': unnormalized_log_prior,
     'mu2': unnormalized_uniform_prior
 }
@@ -896,7 +897,8 @@ prior_range_map = {"mtot": [1, 300], "q":[0.01,1], "s1z":[-0.999*chi_max,0.999*c
   'lambda_plus':[0.01,lambda_plus_max],
   'lambda_minus':[-lambda_max,lambda_max],  # will include the true region always...lots of overcoverage for small lambda, but adaptation will save us.
   'eccentricity':[ECC_MIN, ECC_MAX],
-  'chi_pavg':[0.0,2.0],  
+  'chi_pavg':[0.0,2.0],
+  'chi_prms':[0.0,2.0],
   # strongly recommend you do NOT use these as parameters!  Only to insure backward compatibility with LI results
   'LambdaTilde':[0.01,5000],
   'DeltaLambdaTilde':[-500,500],

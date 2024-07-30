@@ -274,6 +274,7 @@ parser.add_argument("--use-osg-simple-requirements",action='store_true',help="Pr
 parser.add_argument("--archive-pesummary-label",default=None,help="If provided, creates a 'pesummary' directory and fills it with this run's final output at the end of the run")
 parser.add_argument("--archive-pesummary-event-label",default="this_event",help="Label to use on the pesummary page itself")
 parser.add_argument("--internal-mitigate-fd-J-frame",default="L_frame",help="L_frame|rotate, choose method to deal with ChooseFDWaveform being in wrong frame. Default is to request L frame for inputs")
+parser.add_argument("--force-prec-initial-grid",default=None,help="Force add disambiguation space points to the initial grid, need to specify the grid path - TESTING")
 opts=  parser.parse_args()
 
 
@@ -1194,6 +1195,14 @@ if opts.internal_force_iterations:
 # Overwrite grid if needed
 if not (opts.manual_initial_grid is None):
     shutil.copyfile(opts.manual_initial_grid, "proposed-grid.xml.gz")
+    
+## Add prec points to helper-made grid ## TESTING
+if not (opts.force_prec_initial_grid is None):
+    shutil.copyfile("proposed-grid.xml.gz", "proposed-grid_original.xml.gz")
+    init_grid = os.path.join(os.getcwd(), "proposed-grid.xml.gz")
+    prec_grid = opts.force_prec_initial_grid
+    cmd_add = "ligolw_add {} {} --output proposed-grid.xml.gz".format(init_grid, prec_grid)
+    os.system(cmd_add)
 
 # override npts_it if needed
 if opts.internal_n_evaluations_per_iteration:
