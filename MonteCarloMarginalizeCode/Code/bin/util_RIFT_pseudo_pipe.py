@@ -200,6 +200,8 @@ parser.add_argument("--fix-bns-sky",action='store_true')
 parser.add_argument("--ile-sampler-method",type=str,default=None)
 parser.add_argument("--ile-n-eff",type=int,default=None,help="ILE n_eff passed to helper/downstream. Default internally is 50; lower is faster but less accurate, going much below 10 could be dangerous ")
 parser.add_argument("--cip-sampler-method",type=str,default=None)
+parser.add_argument("--cip-sampler-portfolio-list",type=str,default=None,help="if sampler-method==portfolio, string-separated list of options. Goes into --sampler-portfolio array in CIP argument list ")
+parser.add_argument("--cip-sampler-oracle-list",type=str,default=None,help="if sampler-method==portfolio, string-separated list of options from [RS,Climb]. Goes into --sampller-oracle array in CIP argument list. Note if you have supplementary arguments like --sampler-oracle-args, -oracle-reference-sample-file, --oracle-reference-sample-params, you need to pass these with manual-extra-cip-args ")
 parser.add_argument("--cip-fit-method",type=str,default=None)
 parser.add_argument("--cip-internal-use-eta-in-sampler",action='store_true', help="Use 'eta' as a sampling parameter. Designed to make GMM sampling behave particularly nicely for objects which could be equal mass")
 parser.add_argument("--ile-jobs-per-worker",type=int,default=None,help="Default will be 20 per worker usually for moderate-speed approximants, and more for very fast configurations")
@@ -237,6 +239,7 @@ parser.add_argument("--fit-save-gp",action="store_true",help="If true, pass this
 parser.add_argument("--cip-explode-jobs",type=int,default=None)
 parser.add_argument("--cip-explode-jobs-last",type=int,default=None,help="Number of jobs to use in last stage.  Hopefully in future auto-set")
 parser.add_argument("--cip-explode-jobs-auto",action='store_true',help="Auto-select --cip-explode-jobs based on SNR. Changes both cip-explode-jobs and cip-explode-jobs-last")
+parser.add_argument("--cip-explode-jobs-auto-scale",type=float,default=None,help="Scales up number of jobs requested by cip-explode-jobs-auto")
 parser.add_argument("--cip-quadratic-first",action='store_true')
 parser.add_argument("--cip-sigma-cut",default=None,type=float,help="sigma-cut is an error threshold for CIP.  Passthrough")
 parser.add_argument("--n-output-samples",type=int,default=5000,help="Number of output samples generated in the final iteration")
@@ -925,8 +928,11 @@ if opts.cip_explode_jobs_auto and event_dict["SNR"]:
     n_jobs_normal_actual = np.min([n_jobs_normal_guess,n_max_jobs])
     n_jobs_final_actual = np.min([2*n_jobs_normal_guess,n_max_jobs])
     if opts.assume_matter:   # more workers for matter physics jobs
-        n_jobs_normal_actual *=2
+        n_jobs_normal_actual *=2; 
         n_jobs_final_actual *=2
+    if opts.cip_explode_jobs_auto_scale:
+        n_jobs_normal_actual *= opts.cip_explode_jobs_auto_scale; n_jobs_normal_actual = int(n_jobs_normal_actual)
+        n_jobs_final_actual *=  opts.cip_explode_jobs_auto_scale; n_jobs_final_actual =int(n_jobs_final_actual )
     print("  AUTO-EXPLODE GUESS {} {} {} ", n_jobs_normal_guess, n_jobs_normal_actual,n_jobs_final_actual)
     opts.cip_explode_jobs = n_jobs_normal_actual
     opts.cip_explode_jobs_last = n_jobs_final_actual
@@ -977,6 +983,17 @@ for indx in np.arange(len(instructions_cip)):
         line = line.replace('--fit-method gp ', '--fit-method ' + opts.cip_fit_method)  # should not be called, see --force-fit-method argument to helper
     if not (opts.cip_sampler_method is None):
         line += " --sampler-method "+opts.cip_sampler_method
+        if  (opts.cip_sampler_method == 'portfolio'):
+            if opts.cip_sampler_portfolio_list is None:
+                print(" FAILURE: portfolio requires options. No default!")
+                sys.exit(1)
+            port_names = opts.cip_sampler_portfolio_list.split(',')
+            for name in port_names:
+                line += " --sampler-portfolio {} ".format(name.strip())
+            if opts.cip_sampler_oracle_list:
+                oracle_names = opts.cip_sampler_oracle_list.split(',')
+                for name in oracle_names:
+                    line += " --sampler-oracle {} ".format(name.strip())                
     if opts.internal_cip_temper_log:
         line += " --internal-temper-log "
     if opts.internal_cip_tripwire:
