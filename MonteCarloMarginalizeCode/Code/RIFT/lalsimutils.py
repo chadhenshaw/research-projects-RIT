@@ -1267,7 +1267,7 @@ class ChooseWaveformParams:
                         m2 = conv*self.extract_param('m2')
                     q = m2/m1 #mass ratio
                     if self.fref == 0:
-                        fref = 20 #default fixed frequency value
+                        fref = 5 #default fixed frequency value
                     else:
                         fref = self.fref #user spec
                     thetaJN,phiJL,theta1,theta2,phi12,chi1,chi2,psiJ = self.extract_system_frame() #inheriting values from system
