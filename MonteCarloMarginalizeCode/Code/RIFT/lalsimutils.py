@@ -39,6 +39,10 @@ if 'RIFT_RESUM_POLARIZATIONS' in os.environ:
     info_use_resum_polarizations=True  # fallback to ChooseTDModesFromPolarizations for TEOBResumS (since ChooseTDModes is not available at present)
 from six.moves import range
 
+log_loud = False
+if 'RIFT_LOUD' in os.environ:
+    log_loud = True
+
 import numpy as np
 from numpy import sin, cos
 from scipy import interpolate
@@ -80,9 +84,10 @@ __author__ = "Evan Ochsner <evano@gravity.phys.uwm.edu>, R. O'Shaughnessy"
 
 rosDebugMessagesContainer = [False]
 rosDebugMessagesLongContainer = [False]
-print( "[Loading lalsimutils.py : MonteCarloMarginalization version]",file=sys.stderr)
-print( "  scipy : ", scipy.__version__, file=sys.stderr)
-print("  numpy : ", np.__version__,file=sys.stderr)
+if log_loud:
+    print( "[Loading lalsimutils.py : MonteCarloMarginalization version]",file=sys.stderr)
+    print( "  scipy : ", scipy.__version__, file=sys.stderr)
+    print("  numpy : ", np.__version__,file=sys.stderr)
 
 TOL_DF = 1.e-6 # Tolerence for two deltaF's to agree
 
@@ -266,6 +271,7 @@ try:
    lalSEOBNRv4HM_ROM = lalsim.SEOBNRv4HM_ROM
    lalIMRPhenomXP = lalsim.IMRPhenomXP
    lalIMRPhenomXPHM = lalsim.IMRPhenomXPHM
+   lalIMRPhenomXO4a = lalsim.IMRPhenomXO4a
    
 except:
    lalIMRPhenomXP = -11
@@ -273,10 +279,11 @@ except:
    lalIMRPhenomXHM = -15
    lalSEOBNRv4HM_ROM = -16
    lalIMRPhenomXPHM = -17
+   lalIMRPhenomXO4a = -18
 
-pending_FD_approx = ['IMRPhenomXP_NRTidalv2', 'IMRPhenomXAS_NRTidalv2','IMRPhenomXO4a']
+pending_FD_approx = ['IMRPhenomXP_NRTidalv2', 'IMRPhenomXAS_NRTidalv2']
 pending_approx_code = {}
-pending_default_code = -18
+pending_default_code = -19
 for name in pending_FD_approx:
     if hasattr(lalsim, name):
         pending_approx_code[name] = getattr(lalsim, name)
@@ -284,7 +291,9 @@ for name in pending_FD_approx:
         pending_approx_code[name] = pending_default_code
         pending_default_code += -1  # same convention as above
 def check_FD_pending(code):
-    return code in  pending_approx_code.values()
+    return code in  pending_approx_code.values()  # just test if it is in the list of pending, NOT that useful since everything appended here.
+
+
 
 try:
    my_junk = lalsim.SimInspiralChooseFDModes
@@ -2952,7 +2961,7 @@ def hoft(P, Fp=None, Fc=None,**kwargs):
                                        P.s1x, P.s1y, P.s1z, \
                                        P.s2x, P.s2y, P.s2z, \
                                        P.dist, P.incl, P.phiref,  \
-                                       P.psi, P.eccentricity, P.meanPerAno, \
+                                       0 , P.eccentricity, P.meanPerAno, \
                                        P.deltaT, P.fmin, P.fref, \
                                        extra_params, P.approx)
         
@@ -3205,7 +3214,7 @@ def non_herm_hoff(P):
 #argist_FromPolarizations=lalsim.SimInspiralTDModesFromPolarizations.__doc__.split('->')[0].replace('SimInspiralTDModesFromPolarizations','').replace('REAL8','').replace('Dict','').replace('Approximant','').replace('(','').replace(')','').split(',')
 
 
-def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False, silent=True, fd_standoff_factor=0.964,no_condition=False,fd_L_frame=False,fd_centering_factor=0.5,fd_alignment_postevent_time=None,**kwargs ):
+def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False, silent=True, fd_standoff_factor=0.964,no_condition=False,fd_L_frame=False,fd_centering_factor=0.9,fd_alignment_postevent_time=None,**kwargs ):
     """
     Generate the TD h_lm -2-spin-weighted spherical harmonic modes of a GW
     with parameters P. Returns a SphHarmTimeSeries, a linked-list of modes with
@@ -3218,8 +3227,11 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False, sil
 
     fd_standoff_factor: for ChooseFDWaveform, reduce starting frequency P.fmin by this factor internally when generating.
           FD waveform calculation implicitly assumes fmin is in the inspiral regime (if not you are making bad life choices).
-          Default value of 0.964 is based on changing inspiral duration by 10% (1.1^(3/8) ~ 1.036). Any constant factor will change
+          Normal default value of 0.964 is based on changing inspiral duration by 10% (1.1^(3/8) ~ 1.036). Any constant factor will change
           the inspiral duration by a factor (1./fd_standoff_factor)^(8/3) or so.
+
+          WARNING: internal_hlm_generator will CHANGE this factor to 0.9, to better match complex_hoft.  I'm keeping the default of this function here to match the nominal documentaiton of SimInspiralTD, while internal_hlm_generator has a different factor, chosen to match its actual output.
+    
 
     no_condition: disable conditioning (for ChooseFDModes specifically). For diagnostic plots on impact of/need for conditioning.
     fd_L_frame: rotate hlmoft to L frame from J frame for return values from ChooseFDModes (XO4/XPHM). 
@@ -3228,9 +3240,14 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False, sil
 
     # Check that masses are not nan!
     assert (not np.isnan(P.m1)) and (not np.isnan(P.m2)), " masses are NaN "
+    phiref_shift_convention =0
+
 
     # includes the 'release' version
     extra_waveform_args = {}
+    fmin_backstop = 10 # artificial P.fmin to use for setting tapering scales and other things, so P.fmin can be reserved for passing as '0' when requested in crazy ways for NRSur, etc
+    if 'fmin_backstop' in kwargs:
+        fmin_backstop = kwargs['fmin_backstop']
     if 'extra_waveform_args' in kwargs:
         extra_waveform_args.update(kwargs['extra_waveform_args'])
     extra_params = P.to_lal_dict_extended(extra_args_dict=extra_waveform_args)
@@ -3238,7 +3255,7 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False, sil
     sign_factor = 1
     if nr_polarization_convention or (P.approx==lalsim.SpinTaylorT1 or P.approx==lalsim.SpinTaylorT2 or P.approx==lalsim.SpinTaylorT3 or P.approx==lalsim.SpinTaylorT4):
         sign_factor = -1
-    if (P.approx == lalIMRPhenomHM or P.approx == lalIMRPhenomXHM or P.approx == lalIMRPhenomXPHM or P.approx == lalSEOBNRv4HM_ROM or check_FD_pending(P.approx)) and is_ChooseFDModes_present:
+    if (P.approx == lalIMRPhenomHM or P.approx == lalIMRPhenomXHM or P.approx == lalIMRPhenomXPHM or P.approx == lalIMRPhenomXO4a or P.approx == lalSEOBNRv4HM_ROM or (check_FD_pending(P.approx)) and is_ChooseFDModes_present):
        is_precessing=True
        if np.sqrt(P.s1x**2 + P.s1y**2 + P.s2x**2+P.s2y**2)<1e-10:  # only perform if really precessing, otherwise skip. Really only for XP variants
            is_precessing=False
@@ -3263,6 +3280,21 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False, sil
        hlmsT = {}
        hlms = {}
        hlmsdict = SphHarmFrequencySeries_to_dict(hlms_struct,Lmax)
+
+       # FD conditioning using fd_standoff_factor, HIGH PASS FILTER to eliminate LOW FREQUENCIES
+       # Note this conditioning is based on the L=2 mode start frequency -- we should use different conditioning for each coprecessing mode
+       # but that is very difficult to do because modes of different 'm' and thus typical frequency generally mix
+       # Note also that unless the segment length is large, this is often surprisingly few frequency bins for tapering
+       if not(no_condition):
+           our_fvals = evaluate_fvals(hlmsdict[(2,2)])
+           vectaper_symmetric  = np.ones(len(our_fvals))
+           indx_below = np.logical_and(np.abs(np.abs(our_fvals)<P.fmin), np.abs(our_fvals)>=P.fmin*fd_standoff_factor)
+           vectaper_symmetric[indx_below] = 0.5 + 0.5*np.cos(np.pi* (np.abs(our_fvals[indx_below])/P.fmin - 1)/(1-fd_standoff_factor))
+           indx_within = np.abs(our_fvals)< P.fmin*fd_standoff_factor
+           for mode in hlmsdict:
+               hlmsdict[mode].data.data*=vectaper_symmetric
+               hlmsdict[mode].data.data[indx_within]=0
+       
        # Base taper, based on 1% of waveform length
        ntaper = int(0.01*TDlen)  # fixed 1% of waveform length, at start
        ntaper = np.max([ntaper, int(1./(P.fmin*P.deltaT))])  # require at least one waveform cycle of tapering; should never happen
@@ -3314,8 +3346,11 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False, sil
              alpha+= np.pi # empirically validated sign for XPHM, comparing precessing radiation to SEOBv4PHM
 #             print(alpha, beta, gamma, zeta_pol)
 #             print(alpha0, thetaJN, np.pi - phiJL,psiJ)
-             hlmsT_alt = rotate_hlm_static(hlmsT, -gamma, -beta,-alpha ,extra_polarization=psiJ)  
+             hlmsT_alt = rotate_hlm_static(hlmsT, -gamma - np.pi/2, -beta,-alpha ,extra_polarization=psiJ)  
              hlmsT = hlmsT_alt
+        # phase shift ChooseFDModes
+#       for mode in hlmsT:
+ #          hlmsT[mode].data.data *= np.exp(-1j*mode[1]*np.pi/2) # phase correction factor, empirically to match phase convention for precession for example. Note this should always be done
 
        if P.deltaF is not None:
           if not silent:
@@ -3382,6 +3417,8 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False, sil
                 test = lalsim.EOBCheckNyquistFrequency(P.m1/lal.MSUN_SI,P.m2/lal.MSUN_SI, np.array([P.s1x,P.s1y, P.s1z]), np.array([P.s2x,P.s2y, P.s2z]), Lmax,P.approx, P.deltaT)
             except Exception as e:
                 raise NameError(" Nyquist frequency error for v4P/v4PHM, check srate")
+        # extra phase factor of pi/2 added to fix consistency issue with our reconstruction code and other convention; easily demonstrated with precessing binaries, and also in docs
+        phiref_shift_convention =np.pi/2
         hlms = lalsim.SimInspiralChooseTDModes(P.phiref, P.deltaT, P.m1, P.m2, \
 	    P.s1x, P.s1y, P.s1z, \
 	    P.s2x, P.s2y, P.s2z, \
@@ -3620,6 +3657,8 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False, sil
 
     for mode in hlm_dict:
         hlm_dict[mode].data.data *= sign_factor
+        if phiref_shift_convention:
+            hlm_dict[mode].data.data *= np.exp(1j*mode[1]*phiref_shift_convention)*sign_factor # double-count
 
         # Force waveform duration to fit inside target time!  (SimInspiralTD adds a lot of padding)
         if not (P.deltaF is None):  # lalsim.SimInspiralImplementedFDApproximants(P.approx)==1 and 
@@ -3629,9 +3668,14 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False, sil
 
     # Tapering: applies to cases without direct return, like TDmodesFromPolarizations and ChooseTDModes
     if not(no_condition):
+        fmin_effective = P.fmin
+        if not(fmin_effective):
+            fmin_effective  = fmin_backstop
+        # at this point we know the waveform length!
+        TDlen_here = hlm_dict[mode].data.length
         # Base taper, based on 1% of waveform length
-        ntaper = int(0.01*TDlen)  # fixed 1% of waveform length, at start
-        ntaper = np.max([ntaper, int(1./(P.fmin*P.deltaT))])  # require at least one waveform cycle of tapering; should never happen
+        ntaper = int(0.01*TDlen_here)  # fixed 1% of waveform length, at start
+        ntaper = np.max([ntaper, int(1./(fmin_effective*P.deltaT)) ])  # require at least one waveform cycle of tapering; should never happen
         vectaper= 0.5 - 0.5*np.cos(np.pi*np.arange(ntaper)/(1.*ntaper))
         # Taper at the start of the segment
         for mode in hlm_dict:
@@ -4073,7 +4117,7 @@ def complex_hoft(P, sgn=-1,**kwargs):
     hp, hc = lalsim.SimInspiralChooseTDWaveform( P.m1, P.m2, 
             P.s1x, P.s1y, P.s1z, P.s2x, P.s2y, P.s2z,
             P.dist, P.incl, P.phiref,  \
-            P.psi, P.eccentricity, P.meanPerAno, \
+            0 , P.eccentricity, P.meanPerAno, \
             P.deltaT, P.fmin, P.fref, \
             extra_params, P.approx)
     if P.taper != lsu_TAPER_NONE: # Taper if requested
@@ -4081,7 +4125,8 @@ def complex_hoft(P, sgn=-1,**kwargs):
         lalsim.SimInspiralREAL8WaveTaper(hc.data, P.taper)
     if P.deltaF is not None:
         TDlen = int(1./P.deltaF * 1./P.deltaT)
-        print(TDlen,hp.data.length)
+        if log_loud:
+            print(TDlen,hp.data.length)
         assert TDlen >= hp.data.length
         hp = lal.ResizeREAL8TimeSeries(hp, 0, TDlen)
         hc = lal.ResizeREAL8TimeSeries(hc, 0, TDlen)
@@ -4090,6 +4135,8 @@ def complex_hoft(P, sgn=-1,**kwargs):
             hp.deltaT, lsu_DimensionlessUnit, hp.data.length)
     ht.epoch = ht.epoch + P.tref
     ht.data.data = hp.data.data + 1j * sgn * hc.data.data
+    # impose polarization directly, using precisely the conventions we demand
+    ht.data.data*= np.exp(2j*sgn*P.psi)
     return ht
 
 def complex_hoft_IMRPv2(P_copy,sgn=-1):

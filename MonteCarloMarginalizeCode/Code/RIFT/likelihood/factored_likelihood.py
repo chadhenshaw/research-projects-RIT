@@ -24,9 +24,13 @@ Requires python SWIG bindings of the LIGO Algorithms Library (LAL)
 
 from __future__ import print_function
 
+log_loud = False
+
+
 import lal
 import lalsimulation as lalsim
 import RIFT.lalsimutils as lsu  # problem of relative comprehensive import - dangerous due to package name
+log_loud = lsu.log_loud
 import numpy as np
 try:
   import cupy
@@ -74,19 +78,22 @@ if not( 'RIFT_LOWLATENCY'  in os.environ):
  try:
         import NRWaveformCatalogManager3 as nrwf
         useNR =True
-        print(" factored_likelihood.py : NRWaveformCatalogManager3 available ")
+        if log_loud:
+          print(" factored_likelihood.py : NRWaveformCatalogManager3 available ")
  except ImportError:
         useNR=False
 
 
  try:
         import RIFT.physics.ROMWaveformManager as romwf
-        print(" factored_likelihood.py: ROMWaveformManager as romwf")
+        if log_loud:
+          print(" factored_likelihood.py: ROMWaveformManager as romwf")
         useROM=True
         rom_basis_scale = 1.0*1e-21   # Fundamental problem: Inner products with ROM basis vectors/Sh are tiny. Need to rescale to avoid overflow/underflow and simplify comparisons
  except ImportError:
         useROM=False
-        print(" factored_likelihood.py: - no ROM - ")
+        if log_loud:
+          print(" factored_likelihood.py: - no ROM - ")
         rom_basis_scale =1
 
  try:
@@ -95,7 +102,8 @@ if not( 'RIFT_LOWLATENCY'  in os.environ):
  #    import EOBTidalExternal as eobwf
  except:
     hasEOB=False
-    print(" factored_likelihood: no EOB ")
+    if log_loud:
+      print(" factored_likelihood: no EOB ")
 else:
   hasEOB=False
   useROM=False; rom_basis_scale=1
@@ -217,6 +225,8 @@ def internal_hlm_generator(P,
         #         hlms_conj = lsu.SphHarmFrequencySeries_to_dict(hlms_conj_list, Lmax) # a dictionary
         # else:
         #         hlms_conj = hlms_conj_list
+        if not('fd_standoff_factor' in extra_waveform_kwargs):
+          extra_waveform_kwargs['fd_standoff_factor'] = 0.9  # IMPORTANT to match SimInspiralTD. But allow user to override
         hlms, hlms_conj = lsu.std_and_conj_hlmoff(P,Lmax,**extra_waveform_kwargs)
     elif (nr_lookup or NR_group) and useNR:
 	    # look up simulation
@@ -2054,7 +2064,8 @@ if not('RIFT_LOWLATENCY' in os.environ):
         import numba
         from numba import vectorize, complex128, float64, int64
         numba_on = True
-        print(" Numba on ")
+        if log_loud:
+          print(" Numba on ")
 
         # Very inefficient : decorating
         # Problem - lately, compiler not correctly identifying return value of code
@@ -2085,7 +2096,8 @@ if not('RIFT_LOWLATENCY' in os.environ):
 
 if fallback or ('RIFT_LOWLATENCY' in os.environ): 
         numba_on = False
-        print(" Numba off ")
+        if log_loud:
+          print(" Numba off ")
         # Very inefficient
         def lalylm(th,ph,s,l,m):
                 return lal.SpinWeightedSphericalHarmonic(th,ph,s,l,m)
