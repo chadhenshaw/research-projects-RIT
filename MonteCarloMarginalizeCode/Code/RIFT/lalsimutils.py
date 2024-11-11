@@ -5539,7 +5539,7 @@ def convert_waveform_coordinates(x_in,coord_names=['mc', 'eta'],low_level_coord_
         # orbital calcs
         #
         
-        fref = 20.0 # hardcoding for now - how dangerous is this?
+        fref = 5.0 # hardcoding for now - how dangerous is this?
         
         v_at_fref = ( (m1_v+m2_v) * np.pi * fref)**(1./3.)
         ### NOTE that the extract_system_frame code uses the max between fref and fmin:
