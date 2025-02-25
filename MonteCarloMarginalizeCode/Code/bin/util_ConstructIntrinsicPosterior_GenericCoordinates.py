@@ -68,7 +68,7 @@ else:
     print(" - Faiiled ModifiedScikitFit : No polynomial fits - ")
 from sklearn import linear_model
 
-from ligo.lw import lsctables, utils, ligolw
+from igwn_ligolw import lsctables, utils, ligolw
 lsctables.use_in(ligolw.LIGOLWContentHandler)
 
 import RIFT.integrators.mcsampler as mcsampler
@@ -287,8 +287,11 @@ parser.add_argument("--chi-max", default=1,type=float,help="Maximum range of 'a'
 parser.add_argument("--chi-small-max", default=None,type=float,help="Maximum range of 'a' allowed on the smaller body.  If not specified, defaults to chi_max")
 parser.add_argument("--ecc-max", default=0.9,type=float,help="Maximum range of 'eccentricity' allowed.")
 parser.add_argument("--ecc-min", default=0.0,type=float,help="Minimum range of 'eccentricity' allowed.")
+parser.add_argument("--meanPerAno-max", default=2*np.pi,type=float,help="Maximum range of 'meanPerAno' allowed.")
+parser.add_argument("--meanPerAno-min", default=0.0,type=float,help="Minimum range of 'meanPerAno' allowed.")
 parser.add_argument("--chiz-plus-range", default=None,help="USE WITH CARE: If you are using chiz_minus, chiz_plus for a near-equal-mass system, then setting the chiz-plus-range can improve convergence (e.g., for aligned-spin systems), loosely by setting a chi_eff range that is allowed")
-parser.add_argument("--lambda-max", default=4000,type=float,help="Maximum range of 'Lambda' allowed.  Minimum value is ZERO, not negative.")
+parser.add_argument("--lambda-min", default=0.01,type=float,help="Minimum value of 'Lambda' allowed.  This is a very small number slightly different than zero by default, but can be required to be larger for targeted investigations")
+parser.add_argument("--lambda-max", default=4000,type=float,help="Maximum value of 'Lambda' allowed.  Minimum value is ZERO, not negative.")
 parser.add_argument("--lambda-small-max", default=None,type=float,help="Maximum range of 'Lambda' allowed for smaller body. If provided and smaller than lambda_max, used ")
 parser.add_argument("--lambda-plus-max", default=None,type=float,help="Maximum range of 'Lambda_plus' allowed.  Used for sampling. Pick small values to accelerate sampling! Otherwise, use lambda-max.")
 parser.add_argument("--parameter-nofit", action='append', help="Parameter used to initialize the implied parameters, and varied at a low level, but NOT the fitting parameters")
@@ -354,6 +357,7 @@ parser.add_argument("--internal-n-comp",default=1,type=int,help="number of compo
 parser.add_argument("--internal-gmm-memory-chisquared-factor",default=None,type=float,help="Multiple of the number of degrees of freedom to save. 5 is a part in 10^6, 4 is 10^{-4}, and None keeps all up to lnL_offset.  Note that low-weight points can contribute notably to n_eff, and it can be dangerous to assume a simple chisquared likelihood!  Provided in case we need very long runs")
 parser.add_argument("--assume-eos-but-primary-bh",action='store_true',help="Special case of known EOS, but primary is a BH")
 parser.add_argument("--use-eccentricity", action="store_true")
+parser.add_argument("--use-meanPerAno", action="store_true")
 parser.add_argument("--tripwire-fraction",default=0.05,type=float,help="Fraction of nmax of iterations after which n_eff needs to be greater than 1+epsilon for a small number epsilon")
 
 # FIXME hacky options added by me (Liz) to try to get my capstone project to work.
@@ -387,6 +391,8 @@ if not(opts.no_adapt_parameter):
     opts.no_adapt_parameter =[] # needs to default to empty list
 ECC_MAX = opts.ecc_max
 ECC_MIN = opts.ecc_min
+MEANPERANO_MAX = 0.0 
+MEANPERANO_MIN = 2*np.pi 
 no_plots = no_plots |  opts.no_plots
 lnL_shift = 0
 lnL_default_large_negative = -500
@@ -628,6 +634,7 @@ chi_max = opts.chi_max
 chi_small_max = chi_max
 if not opts.chi_small_max is None:
     chi_small_max = opts.chi_small_max
+lambda_min=opts.lambda_min
 lambda_max=opts.lambda_max
 lambda_small_max  = lambda_max
 if not  (opts.lambda_small_max is None):
@@ -635,10 +642,17 @@ if not  (opts.lambda_small_max is None):
 lambda_plus_max = opts.lambda_max
 if opts.lambda_plus_max:
     lambda_plus_max  = opts.lambda_max
-downselect_dict['chi1'] = [0,chi_max]
-downselect_dict['chi2'] = [0,chi_small_max]
-downselect_dict['lambda1'] = [0,lambda_max]
-downselect_dict['lambda2'] = [0,lambda_small_max]
+if not('chi1' in downselect_dict):
+    # dont override
+    downselect_dict['chi1'] = [0,chi_max]
+if not('chi2' in downselect_dict):
+    downselect_dict['chi2'] = [0,chi_small_max]
+if opts.input_tides:
+    # only insert these cuts if we are using a composite file with tides!  
+    if not('lambda1' in downselect_dict):
+        downselect_dict['lambda1'] = [lambda_min,lambda_max]
+    if not('lambda2' in downselect_dict):
+        downselect_dict['lambda2'] = [lambda_min,lambda_small_max]
 for param in ['s1z', 's2z', 's1x','s2x', 's1y', 's2y']:
     downselect_dict[param] = [-chi_max,chi_max]
 # Enforce definition of eta
@@ -804,9 +818,9 @@ def s_component_aligned_volumetricprior(x,R=1.):
     return (3./4.*(1- np.power(x/R,2))/R)
 
 def lambda_prior(x):
-    return np.ones(x.shape)/lambda_max   # assume arbitrary
+    return np.ones(x.shape)/(lambda_max-lambda_min)   # assume arbitrary
 def lambda_small_prior(x):
-    return np.ones(x.shape)/lambda_small_max   # assume arbitrary
+    return np.ones(x.shape)/(lambda_small_max -lambda_min)   # assume arbitrary
 
 
 # DO NOT USE UNLESS REQUIRED FOR COMPATIBILITY
@@ -844,6 +858,12 @@ def tapered_magnitude_prior_alt(x,loc=0.8,kappa=20.):   #
 
 def eccentricity_prior(x):
     return np.ones(x.shape) / (ECC_MAX-ECC_MIN) # uniform over the interval [0.0, ECC_MAX]
+
+def eccentricity_squared_prior(x):  # note this is INCONSISTENT with the prior above -- we are designed to give a CDF = (e/emax)^2 for example here
+    return np.ones(x.shape) / (ECC_MAX-ECC_MIN)**2 # uniform over the interval [0.0, ECC_MAX]
+
+def meanPerAno_prior(x):
+    return np.ones(x.shape) / (MEANPERANO_MAX-MEANPERANO_MIN) # uniform over the interval [MEANPERANO_MIN, MEANPERANO_MAX]
 
 def precession_prior(x):
     return 0.5*np.ones(x.shape) # uniform over the interval [0.0, 2.0]
@@ -894,6 +914,8 @@ prior_map  = { "mtot": M_prior, "q":q_prior, "s1z":s_component_uniform_prior, "s
     's2z_bar':normalized_zbar_prior,
     # Other priors
     'eccentricity':eccentricity_prior,
+    'eccentricity':eccentricity_squared_prior,
+    'meanPerAno':meanPerAno_prior,
     'chi_pavg':precession_prior,
     'chi_prms':precession_prior,
     'mu1': unnormalized_log_prior,
@@ -908,11 +930,13 @@ prior_range_map = {"mtot": [1, 300], "q":[0.01,1], "s1z":[-0.999*chi_max,0.999*c
   'chiz_minus':[-chi_max,chi_max],
   'm1':[0.9,1e3],
   'm2':[0.9,1e3],
-  'lambda1':[0.01,lambda_max],
-  'lambda2':[0.01,lambda_small_max],
-  'lambda_plus':[0.01,lambda_plus_max],
+  'lambda1':[lambda_min,lambda_max],
+  'lambda2':[lambda_min,lambda_small_max],
+  'lambda_plus':[lambda_min,lambda_plus_max],
   'lambda_minus':[-lambda_max,lambda_max],  # will include the true region always...lots of overcoverage for small lambda, but adaptation will save us.
   'eccentricity':[ECC_MIN, ECC_MAX],
+  'eccentricity_squared':[ECC_MIN**2, ECC_MAX**2],
+  'meanPerAno':[MEANPERANO_MIN, MEANPERANO_MAX],
   'chi_pavg':[0.0,2.0],
   'chi_prms':[0.0,2.0],
   # strongly recommend you do NOT use these as parameters!  Only to insure backward compatibility with LI results
@@ -1593,9 +1617,18 @@ n_params = -1
 ###
 #  id m1 m2  lnL sigma/L  neff
 col_lnL = 9
+col_eccentricity = None
+col_meanPerAno = None
+col_lambda1 = None
+col_distance = None
+if opts.input_distance:
+    print(" Distance input")
+    col_lnL +=1
+    col_distance = col_lnL -1
 if opts.input_tides:
     print(" Tides input")
     col_lnL +=2
+    col_lambda1 = col_lnL -2
     if opts.input_eos_index:
         print(" EOS Tides input")
         col_lnL +=1
@@ -1605,15 +1638,31 @@ if opts.input_tides:
             low_level_coord_names += ['ordering'] 
         print(" Revised fit coord names (for lookup) : ", coord_names) # 'eos_table_index' will be overwritten here
         print(" Revised sampling coord names  : ", low_level_coord_names)
-
 elif opts.use_eccentricity:
     print(" Eccentricity input: [",ECC_MIN, ", ",ECC_MAX, "]")
-    col_lnL += 1
+    if opts.use_meanPerAno:
+        print("  Also using meanPerAno ")
+        # perform modulus on desired row
+        col_lnL+=2
+        col_meanPerAno = col_lnL -1
+        col_eccentricity = col_lnL -2
+    else:
+        col_lnL += 1
+        col_eccentricity = col_lnL -1
+    if opts.use_meanPerAno:
+        print(" Eccentricity input: [",ECC_MIN, ", ",ECC_MAX, "]")
+        print(" MeanPerAno input: [",MEANPERANO_MIN, ", ",MEANPERANO_MAX, "]")
+        col_lnL += 2
+    else:
+        print(" Eccentricity input: [",ECC_MIN, ", ",ECC_MAX, "]")
+        col_lnL += 1
 if opts.input_distance:
     print(" Distance input")
     col_lnL +=1
 dat_orig = dat = np.loadtxt(opts.fname)
 dat_orig = dat[dat[:,col_lnL].argsort()] # sort  http://stackoverflow.com/questions/2828059/sorting-arrays-in-numpy-by-column
+if col_meanPerAno:
+    dat_orig[:,col_meanPerAno] = np.mod(dat_orig[:,col_meanPerAno], lalsimutils.periodic_params['meanPerAno'] ) # 2 *np.pi
 print(" Original data size = ", len(dat), dat.shape)
 
 # Rescale lnL data, if requested.  Note requires user have sensible understanding of zero points of likelihood, etc  Appl
@@ -1696,14 +1745,19 @@ for line in dat:
     P.s2z = line[8]
 
     if opts.input_tides:
-        P.lambda1 = line[9]
-        P.lambda2 = line[10]
+        P.lambda1 = line[col_lambda1]
+        P.lambda2 = line[col_lambda1+1]
     if opts.input_eos_index:
-        P.eos_table_index = line[11]
+        P.eos_table_index = line[col_lambda1+2]
     if opts.use_eccentricity:
+        P.eccentricity = line[col_eccentricity]  # 9
+        if opts.use_meanPerAno:
+            P.meanPerAno = line[col_meanPerAno] #10
         P.eccentricity = line[9]
+        if opts.use_meanPerAno:
+            P.meanPerAno = line[10]
     if opts.input_distance:
-        P.dist = lal.PC_SI*1e6*line[9]  # Incompatible with tides, note!
+        P.dist = lal.PC_SI*1e6*line[col_distance]  # 9. Previously incompatible with tides when hardcoded
     
     if opts.contingency_unevolved_neff == "quadpuff":
         P_copy = P.manual_copy()  # prevent duplication

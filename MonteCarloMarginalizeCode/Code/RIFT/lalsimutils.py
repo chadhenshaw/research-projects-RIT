@@ -59,7 +59,7 @@ def safe_int(mystr):
         return None
 sci_ver = list(map(safe_int, scipy.version.version.split('.')))  # scipy version number as int list.
 
-from ligo.lw import lsctables, utils, ligolw #, table, ,ilwd # check all are needed
+from igwn_ligolw import lsctables, utils, ligolw #, table, ,ilwd # check all are needed
 from glue.lal import Cache
 
 lalmetaio_old_style=True
@@ -103,9 +103,9 @@ def strip_ilwdchar(_ContentHandler):
     Leo Singer (GPL-3.0-or-later).
     This is taken directly from https://github.com/gwpy/gwpy/blob/master/gwpy/io/ligolw.py#L92
     """
-    from ligo.lw.lsctables import TableByName
-    from ligo.lw.table import (Column, TableStream)
-    from ligo.lw.types import (FromPyType, ToPyType)
+    from igwn_ligolw.lsctables import TableByName
+    from igwn_ligolw.table import (Column, TableStream)
+    from igwn_ligolw.types import (FromPyType, ToPyType)
 
     class IlwdMapContentHandler(_ContentHandler):
 
@@ -165,8 +165,9 @@ def strip_ilwdchar(_ContentHandler):
     return IlwdMapContentHandler
 
 
+# updated in igwn_ligolw
 cthdler = strip_ilwdchar(ligolw.LIGOLWContentHandler) #defines a content handler to load xml grids
-lsctables.use_in(cthdler)
+#lsctables.use_in(cthdler)
 
 
 waveform_approx_limit_dict = {
@@ -339,7 +340,12 @@ def lsu_StringFromPNOrder(order):
 #
 # Class to hold arguments of ChooseWaveform functions
 #
-valid_params = ['m1', 'm2', 's1x', 's1y', 's1z', 's2x', 's2y', 's2z', 'chi1_perp', 'chi2_perp', 'chi1_perp_bar', 'chi2_perp_bar','chi1_perp_u', 'chi2_perp_u', 's1z_bar', 's2z_bar', 'lambda1', 'lambda2', 'theta','phi', 'phiref',  'psi', 'incl', 'tref', 'dist', 'mc', 'mc_ecc', 'eta', 'delta_mc', 'chi1', 'chi2', 'thetaJN', 'phiJL', 'theta1', 'theta2', 'cos_theta1', 'cos_theta2',  'theta1_Jfix', 'theta2_Jfix', 'psiJ', 'beta', 'cos_beta', 'sin_phiJL', 'cos_phiJL', 'phi12', 'phi1', 'phi2', 'LambdaTilde', 'DeltaLambdaTilde', 'lambda_plus', 'lambda_minus', 'q', 'mtot','xi','chiz_plus', 'chiz_minus', 'chieff_aligned','fmin','fref', "SOverM2_perp", "SOverM2_L", "DeltaOverM2_perp", "DeltaOverM2_L", "shu","ampO", "phaseO",'eccentricity','chi_pavg','mu1','mu2','eos_table_index', 'chi_prms']
+
+valid_params = ['m1', 'm2', 's1x', 's1y', 's1z', 's2x', 's2y', 's2z', 'chi1_perp', 'chi2_perp', 'chi1_perp_bar', 'chi2_perp_bar','chi1_perp_u', 'chi2_perp_u', 's1z_bar', 's2z_bar', 'lambda1', 'lambda2', 'theta','phi', 'phiref',  'psi', 'incl', 'tref', 'dist', 'mc', 'mc_ecc', 'eta', 'delta_mc', 'chi1', 'chi2', 'thetaJN', 'phiJL', 'theta1', 'theta2', 'cos_theta1', 'cos_theta2',  'theta1_Jfix', 'theta2_Jfix', 'psiJ', 'beta', 'cos_beta', 'sin_phiJL', 'cos_phiJL', 'phi12', 'phi1', 'phi2', 'LambdaTilde', 'DeltaLambdaTilde', 'lambda_plus', 'lambda_minus', 'q', 'mtot','xi','chiz_plus', 'chiz_minus', 'chieff_aligned','fmin','fref', "SOverM2_perp", "SOverM2_L", "DeltaOverM2_perp", "DeltaOverM2_L", "shu","ampO", "phaseO",'eccentricity','eccentricity_squared', 'chi_pavg','mu1','mu2','eos_table_index','meanPerAno', 'chi_prms']
+
+# so far, used for puffball, to prevent insanity (infinite growth) and/or death to downselect
+#   - note we also provide for extrinsic: RA (phi), phiref, psi, just in case we need it in the future
+periodic_params = {'phi1':2*np.pi, 'phi2':2*np.pi, 'phiref':2*np.pi, 'psi':np.pi, 'meanPerAno':2*np.pi, 'phi':2*np.pi, 'phiJL':2*np.pi, 'psiJ':2*np.pi}
 
 tex_dictionary  = {
  "mtot": r'$M$',
@@ -381,6 +387,7 @@ tex_dictionary  = {
   "s1y": r"$\chi_{1,y}$",
   "s2y": r"$\chi_{2,y}$",
   "eccentricity":"$e$",
+  "meanPerAno":"$l_gw$",
   # tex labels for inherited LI names
  "a1z": r'$\chi_{1,z}$',
  "a2z": r'$\chi_{2,z}$',
@@ -428,7 +435,8 @@ class ChooseWaveformParams:
             theta=0., phi=0., psi=0., tref=0., radec=False, detector="H1",
             deltaF=None, fmax=0., # for use w/ FD approximants
             taper=lsu_TAPER_NONE, # for use w/TD approximants
-            eccentricity=0. # make eccentricity a parameter
+            eccentricity=0., # make eccentricity a parameter
+            meanPerAno=0. # make meanPerAno a parameter
             ):
         self.phiref = phiref
         self.deltaT = deltaT
@@ -457,6 +465,7 @@ class ChooseWaveformParams:
         self.meanPerAno = 0.0  # port 
         self.longAscNodes = self.psi # port to master
         self.eccentricity=eccentricity
+        self.meanPerAno=meanPerAno
         self.tref = tref
         self.radec = radec
         self.detector = "H1"
@@ -875,6 +884,9 @@ class ChooseWaveformParams:
             return self
         if p == 'chi1z_mu':
             raise("Not implemented yet")
+        if p == 'eccentricity_squared':
+            self.eccentricity = np.sqrt(val)  # value is eccentricity squared
+            return self
         # assign an attribute
         if hasattr(self,p):
             setattr(self,p,val)
@@ -901,6 +913,7 @@ class ChooseWaveformParams:
             return mchirp(self.m1,self.m2)
         if p == 'mc_ecc':
             # defined Favata et al 2108.05861  see Eq. 1.1
+            # This is defined at periapstron; check to make sure your e's are defined corretly!
             return mchirp(self.m1,self.m2)/np.power( 1 - 157*self.eccentricity**2/24., 3./5.)
         if p == 'log_mc':
             return np.log10(mchirp(self.m1,self.m2))
@@ -1324,6 +1337,8 @@ class ChooseWaveformParams:
         if p == 'DeltaLambdaTilde':
             Lt, dLt   = tidal_lambda_tilde(self.m1, self.m2, self.lambda1, self.lambda2)
             return dLt
+        if p == 'eccentricity_squared':
+            return self.eccentricity**2
         if 'product(' in p:
             # Drop first and last characters
             a=p.replace(' ', '') # drop spaces
@@ -1590,6 +1605,7 @@ class ChooseWaveformParams:
         print( "reference orbital phase =", self.phiref)
         print( "polarization angle =", self.psi)
         print( "eccentricity = ", self.eccentricity)
+        print( "meanPerAno = ", self.meanPerAno)
         print( "time of coalescence =", float(self.tref),  " [GPS sec: ",  int(self.tref), ",  GPS ns ", (self.tref - int(self.tref))*1e9, "]")
         print( "detector is:", self.detector)
         if self.radec==False:
@@ -1777,6 +1793,7 @@ class ChooseWaveformParams:
         self.lambda1 = row.alpha5
         self.lambda2 = row.alpha6
         self.eccentricity=row.alpha4
+        self.meanPerAno=row.alpha
         self.snr = row.alpha3   # lnL info
         # WARNING: alpha1, alpha2 used by ILE for weights!
         if hasattr(row, 'alpha'):
@@ -1818,7 +1835,7 @@ class ChooseWaveformParams:
         row.inclination = self.incl
         row.polarization = self.psi
         row.coa_phase = self.phiref
-        # New code for managing times in output: see https://git.ligo.org/kipp.cannon/python-ligo-lw/-/blob/master/ligo/lw/lsctables.py
+        # New code for managing times in output: see https://git.ligo.org/kipp.cannon/python-igwn_ligolw/-/blob/master/igwn_ligolw/lsctables.py
         if 'time_geocent' in dir(row):
             row.time_geocent = float(self.tref)
         # http://stackoverflow.com/questions/6032781/pythonnumpy-why-does-numpy-log-throw-an-attribute-error-if-its-operand-is-too
@@ -1839,6 +1856,7 @@ class ChooseWaveformParams:
         row.alpha5 = self.lambda1
         row.alpha6 = self.lambda2
         row.alpha4 = self.eccentricity
+        row.alpha = self.meanPerAno
         if self.eos_table_index:
             row.alpha = self.eos_table_index
         if self.snr:
@@ -5134,6 +5152,10 @@ def convert_waveform_coordinates(x_in,coord_names=['mc', 'eta'],low_level_coord_
         elif ('eta' in low_level_coord_names):
                 indx_eta = low_level_coord_names.index('eta')
                 eta_vals = x_in[:,indx_eta]
+        if 'eta' in coord_names_reduced:
+            indx_p_out = coord_names.index('eta')
+            x_out[:,indx_p_out] = eta_vals
+            coord_names_reduced.remove('eta')
         if 'm1' in coord_names_reduced:
             m1_vals =np.zeros(len(x_in))  
             m2_vals =np.zeros(len(x_in))  

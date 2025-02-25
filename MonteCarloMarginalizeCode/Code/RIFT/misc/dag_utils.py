@@ -420,6 +420,22 @@ def write_1dpos_plot_sub(tag='1d_post_plot', exe=None, log_dir=None, output_dir=
     return plot_job, plot_sub_name
 
 
+def write_CIP_single_iteration_subdag(cip_worker_job,it,unique_postfix,subdag_dir,n_retries=3,n_explode=1):
+    # Assume subdag_dir exists, we will append onto filename
+    dag = pipeline.CondorDAG(log=os.getcwd())
+    for indx in range(n_explode):
+        worker_node =pipeline.CondorDAGNode(cip_worker_job)
+        worker_node.add_macro("macroiteration", it)
+        worker_node.add_macro("macroiterationnext", it+1)
+        worker_node.set_category("CIP_worker")
+        worker_node.set_retry(n_retries)
+        dag.add_node(worker_node)
+    dag_name=subdag_dir+"/subdag_CIP_{}".format(unique_postfix)
+    dag.set_dag_file(dag_name)
+    dag.write_concrete_dag()
+    return dag_name + ".dag"
+
+
 
 def write_CIP_sub(tag='integrate', exe=None, input_net='all.net',output='output-ILE-samples',universe="vanilla",out_dir=None,log_dir=None, use_eos=False,ncopies=1,arg_str=None,request_memory=8192,request_memory_flex=False, arg_vals=None, no_grid=False,request_disk=False, transfer_files=None,transfer_output_files=None,use_singularity=False,use_osg=False,use_simple_osg_requirements=False,singularity_image=None,max_runtime_minutes=None,condor_commands=None,**kwargs):
     """
@@ -443,7 +459,9 @@ def write_CIP_sub(tag='integrate', exe=None, input_net='all.net',output='output-
         path_split = exe.split("/")
         print((" Executable: name breakdown ", path_split, " from ", exe))
         singularity_base_exe_path = "/usr/bin/"  # should not hardcode this ...!
-        if 'SINGULARITY_BASE_EXE_DIR' in list(os.environ.keys()) :
+        if 'SINGULARITY_BASE_EXE_DIR_HYPERPIPE' in list(os.environ.keys()) : # allow a DIFFERENT exe to be used here for hyperpipe : CIP used for remote
+            singularity_base_exe_path = os.environ['SINGULARITY_BASE_EXE_DIR_HYPERPIPE']
+        elif 'SINGULARITY_BASE_EXE_DIR' in list(os.environ.keys()) :
             singularity_base_exe_path = os.environ['SINGULARITY_BASE_EXE_DIR']
         exe=singularity_base_exe_path + path_split[-1]
         if path_split[-1] == 'true':  # special universal path for /bin/true, don't override it!
@@ -555,7 +573,8 @@ def write_CIP_sub(tag='integrate', exe=None, input_net='all.net',output='output-
 
     if use_osg:
            # avoid black-holing jobs to specific machines that consistently fail. Uses history attribute for ad
-           ile_job.add_condor_cmd('periodic_release','(HoldReasonCode == 45) && (HoldReasonSubCode == 0)')
+           #    https://htcondor.readthedocs.io/en/latest/classad-attributes/job-classad-attributes.html
+           ile_job.add_condor_cmd('periodic_release','((HoldReasonCode == 45) && (HoldReasonSubCode == 0)) || (HoldReasonCode == 13)')
            ile_job.add_condor_cmd('job_machine_attrs','Machine')
            ile_job.add_condor_cmd('job_machine_attrs_history_length','4')
 #           for indx in [1,2,3,4]:
@@ -621,7 +640,7 @@ def write_CIP_sub(tag='integrate', exe=None, input_net='all.net',output='output-
     return ile_job, ile_sub_name
 
 
-def write_puff_sub(tag='puffball', exe=None, input_net='output-ILE-samples',output='puffball',universe="vanilla",out_dir=None,log_dir=None, use_eos=False,ncopies=1,arg_str=None,request_memory=1024,arg_vals=None, no_grid=False,**kwargs):
+def write_puff_sub(tag='puffball', exe=None, input_net='output-ILE-samples',output='puffball',universe="vanilla",out_dir=None,log_dir=None, use_eos=False,ncopies=1,arg_str=None,request_memory=1024,arg_vals=None, no_grid=False,extra_text='',**kwargs):
     """
     Perform puffball calculation 
     Inputs:
@@ -630,6 +649,27 @@ def write_puff_sub(tag='puffball', exe=None, input_net='output-ILE-samples',outp
     """
 
     exe = exe or which("util_ParameterPuffball.py")
+    # Create executable if needed  (using extra_text as flag for now)
+    if len(extra_text) > 0:
+        if not (base is None):
+            base_str = ' ' + base +"/"
+
+        cmdname = "puff_sub.sh"
+        
+        with open(cmdname,'w') as f:        
+            f.write("#! /usr/bin/env bash\n")
+            f.write(extra_text+"\n")
+            extra_args = ''
+            f.write( exe +  " $@  \n")
+
+        st = os.stat(cmdname)
+        import stat
+        os.chmod(cmdname, st.st_mode | stat.S_IEXEC)
+
+        exe = base_str + "puff_sub.sh"
+
+
+    
     ile_job = pipeline.CondorDAGJob(universe=universe, executable=exe)
     requirements=[]
     if universe=='local':
@@ -702,7 +742,7 @@ def write_puff_sub(tag='puffball', exe=None, input_net='output-ILE-samples',outp
     return ile_job, ile_sub_name
 
 
-def write_ILE_sub_simple(tag='integrate', exe=None, log_dir=None, use_eos=False,simple_unique=False,ncopies=1,arg_str=None,request_memory=4096,request_gpu=False,request_cross_platform=False,request_disk=False,arg_vals=None, transfer_files=None,transfer_output_files=None,use_singularity=False,use_osg=False,use_simple_osg_requirements=False,singularity_image=None,use_cvmfs_frames=False,frames_dir=None,cache_file=None,fragile_hold=False,max_runtime_minutes=None,condor_commands=None,**kwargs):
+def write_ILE_sub_simple(tag='integrate', exe=None, log_dir=None, use_eos=False,simple_unique=False,ncopies=1,arg_str=None,request_memory=4096,request_gpu=False,request_cross_platform=False,request_disk=False,arg_vals=None, transfer_files=None,transfer_output_files=None,use_singularity=False,use_osg=False,use_simple_osg_requirements=False,singularity_image=None,use_cvmfs_frames=False,use_oauth_files=False,frames_dir=None,cache_file=None,fragile_hold=False,max_runtime_minutes=None,condor_commands=None,**kwargs):
     """
     Write a submit file for launching jobs to marginalize the likelihood over intrinsic parameters.
 
@@ -880,6 +920,9 @@ echo Starting ...
 #                requirements.append("HAS_CVMFS_LIGO_CONTAINERS=?=TRUE")
             #ile_job.add_condor_cmd("requirements", ' (IS_GLIDEIN=?=True) && (HAS_LIGO_FRAMES=?=True) && (HAS_SINGULARITY=?=TRUE) && (HAS_CVMFS_LIGO_CONTAINERS=?=TRUE)')
 
+    if use_oauth_files:
+        # we are using some authentication to retrieve files from the file transfer list, for example, from distributed hosts, not just submit. eg urls provided
+            ile_job.add_condor_cmd('use_oauth_services',use_oauth_files)
     if use_cvmfs_frames:
         requirements.append("HAS_LIGO_FRAMES=?=TRUE")
         if 'LIGO_OATH_SCOPE' in os.environ:
@@ -1017,7 +1060,7 @@ echo Starting ...
 
 
 
-def write_consolidate_sub_simple(tag='consolidate', exe=None, base=None,target=None,universe="vanilla",arg_str=None,log_dir=None, use_eos=False,ncopies=1,no_grid=False, max_runtime_minutes=120,**kwargs):
+def write_consolidate_sub_simple(tag='consolidate', exe=None, base=None,target=None,universe="vanilla",arg_str=None,log_dir=None, use_eos=False,ncopies=1,no_grid=False, max_runtime_minutes=120,extra_text='',**kwargs):
     """
     Write a submit file for launching a consolidation job
        util_ILEdagPostprocess.sh   # suitable for ILE consolidation.  
@@ -1027,6 +1070,27 @@ def write_consolidate_sub_simple(tag='consolidate', exe=None, base=None,target=N
     """
 
     exe = exe or which("util_ILEdagPostprocess.sh")
+
+    # Create executable if needed  (using extra_text as flag for now)
+    if len(extra_text) > 0:
+        if not (base is None):
+            base_str = ' ' + base +"/"
+
+        cmdname = "con_sub.sh"
+        
+        with open(cmdname,'w') as f:        
+            f.write("#! /usr/bin/env bash\n")
+            f.write(extra_text+"\n")
+            extra_args = ''
+            f.write( exe +  " $@  \n")
+
+        st = os.stat(cmdname)
+        import stat
+        os.chmod(cmdname, st.st_mode | stat.S_IEXEC)
+
+        exe = base_str + "con_sub.sh"
+
+    
     ile_job = pipeline.CondorDAGJob(universe=universe, executable=exe)
     # This is a hack since CondorDAGJob hides the queue property
     ile_job._CondorJob__queue = ncopies
@@ -1117,7 +1181,7 @@ def write_consolidate_sub_simple(tag='consolidate', exe=None, base=None,target=N
 
 
 
-def write_unify_sub_simple(tag='unify', exe=None, base=None,target=None,universe="vanilla",arg_str=None,log_dir=None, use_eos=False,ncopies=1,no_grid=False, max_runtime_minutes=60,**kwargs):
+def write_unify_sub_simple(tag='unify', exe=None, base=None,target=None,universe="vanilla",arg_str=None,log_dir=None, use_eos=False,ncopies=1,no_grid=False, max_runtime_minutes=60,extra_text='',**kwargs):
     """
     Write a submit file for launching a consolidation job
        util_ILEdagPostprocess.sh   # suitable for ILE consolidation.  
@@ -1137,12 +1201,22 @@ def write_unify_sub_simple(tag='unify', exe=None, base=None,target=None,universe
         base_str = ' ' + base +"/"
     with open(cmdname,'w') as f:        
         f.write("#! /usr/bin/env bash\n")
+        if len(extra_text) > 0:
+            f.write(extra_text+"\n")
         f.write( "ls " + base_str+"*.composite  1>&2 \n")  # write filenames being concatenated to stderr
         # Sometimes we need to pass --eccentricity or --tabular-eos-file etc to util_CleanILE.py
         extra_args = ''
         if arg_str:
             extra_args = arg_str
         f.write( exe + extra_args+ base_str+ "*.composite \n")
+        # Backstop code for untify.sh
+        f.write("""ret_value=$?
+if [ $ret_value -eq 0 ]; then
+  exit 0
+else
+  cat {}
+fi
+""".format(base_str+"*.composite"))
     st = os.stat(cmdname)
     import stat
     os.chmod(cmdname, st.st_mode | stat.S_IEXEC)

@@ -1,6 +1,28 @@
+0.0.17.2
+------------
+development tree is rift_O4c
+   - lalsimutils.periodic_params for plot_posterior_corner and puff; pipeline transverse puff better z coordinates **noteworthy**,
+     ligo.lw->igwn_ligoow update, backend changes to CIP column order parsing to be more flexible, CIP lambda_min;
+     ILE --internal-waveform-extra-kwargs for gwsignal, changing t_window;  pipeline --internal-use-oauthfiles;
+     hyperpipe convergence test nodes
+   
+
+0.0.17.1
+------------
+development tree is rift_O4c
+  - true cosmological distance priors for ILE. Fix --cip-explode-jobs-subdag in cepp_basic to only operate when
+    requested.  Update requirements. Note lalsuite==7.23,7.24 releases don't work (and have never worked) due to broken
+    executable installs (lal_path2cache): never use those two versions. (rc0)
+  - natsort in requirements, EOSManager tabular can extract one EOS realization, puff adds --fail-if-empty option,
+    GWSignal/gwsignal interface forcing hlm tapering, plot_posterior_corner access external code to plot other (e.g.,
+    exact) marginals, hyperpipe randomize grid*.dat when joining to fix sort issue, hyperpipe
+    SINGULARITY_BASE_EXE_DIR_HYPERPIPE, ILE/dmarg tables new cosmo/cosmo_sourceframe priors, pp_RIFT_with_ini boundary
+    range fix ported, hyperpipe fix file transfer issues for PUFF outputs (rc1)
+release is rc1
+
 0.0.17.0
 -----------
-pre-release, only available in source tree for rift_O4c
+development tree is  rift_O4c
    - start roughly 0.0.16.0rc2. asimov integation, documentation, CIP --n-events-to-analyze; mcsamplerNFlow;
      mcsamplerPortfolio; unreliable_oracles including reference samples; implement mcsamplerPortfolio and some oracles
      in ILE and CIP; hyperpipe dag writer integer events; pp_RIFT_with_ini merge; hyperpipe EOS_POST other integrators;
@@ -28,7 +50,13 @@ pre-release, only available in source tree for rift_O4c
     correctly (only for injections), now have waveform matching; add test/check_waveform_random .  **hlmoft ChooseFDModes**: add
     conditioning to return from ChooseFDModes, work on phase factors/geometry so now excellent matching, including
     fd_centering_factor.  calmarg code clean up  (rc1)
+  - public OSG settings (--use-osg-public); basic CIP/ILE subdag system with while loop as option (cip-explode-jobs-subdag) ; minor bugfixes
+    (ile-runtime-max-minutes to convergence subdag; remove simple_unique ILE_puff/ILE_fetch argument); minor refactoring
+    of ILE nodes in dag writing (internal) in prep for improved subdag system (rc2)
 
+ release is rc2
+
+    
 0.0.16.0
 -----------
 Since last release
@@ -41,12 +69,15 @@ Since last release
    - asimov integration (as in rift_O4a/0.0.15.12 rc0); documentation update for hyperpipe, etc; CIP --n-events-to-analyze for hyperpipe; 
      expanded asimov integration (from rift_O4c branch) - calmarg, improved rift.py/rift.ini handoff of args
 
+No release intended (modulo LVK requirements), folded into 0.0.17
+     
 0.0.15.12
 -------------
 Since last release
    - gracedb get file psd.xml.gz fix for online; ILE hard fail if CUDA/JIT compilation error; bugfix (-1)^m->(-1)^l
      reflection for aligned TEOBResumS external call; asimov integration
 
+No release intended (modulo LVK requirements), folded into above.
 
 0.0.15.11
 -----------

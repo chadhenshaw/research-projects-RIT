@@ -30,7 +30,7 @@ import functools
 import itertools
 
 
-from ligo.lw import lsctables, utils, ligolw
+from igwn_ligolw import lsctables, utils, ligolw
 lsctables.use_in(ligolw.LIGOLWContentHandler)
 
 
@@ -38,6 +38,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--inj-file", help="Name of XML file")
 parser.add_argument("--inj-file-out", default="output-puffball", help="Name of XML file")
 parser.add_argument("--puff-factor", default=1,type=float)
+parser.add_argument("--fail-if-empty", action='store_true', help="Fail if the output file is empty. Useflu diagnostic to stop runs with undesired behavior which otherwise quietly have no puff input")
 parser.add_argument("--force-away", default=0,type=float,help="If >0, uses the icov to compute a metric, and discards points which are close to existing points")
 parser.add_argument("--approx-output",default="SEOBNRv2", help="approximant to use when writing output XML files.")
 parser.add_argument("--fref",default=None,type=float, help="Reference frequency used for spins in the ILE output.  (Since I usually use SEOBNRv3, the best choice is 20Hz). Default is to use what is in the original overlap-grid.xml.gz file")
@@ -191,9 +192,10 @@ names_downselect = list(downselect_dict.keys())
 x_out_down = lalsimutils.convert_waveform_coordinates(X_out, coord_names=names_downselect, low_level_coord_names=coord_names)
 indx_ok = np.ones(len(x_out_down),dtype=bool)
 for indx, name in enumerate(names_downselect):
-    indx_ok = np.logical_not(np.isnan(x_out_down[:,indx]))
+    indx_ok = np.logical_and(indx_ok,  np.logical_not(np.isnan(x_out_down[:,indx])))  
     indx_ok = np.logical_and(indx_ok,  x_out_down[:,indx]< downselect_dict[name][1] )
     indx_ok = np.logical_and(indx_ok,  x_out_down[:,indx]> downselect_dict[name][0] )
+    print('   Increment downselect : {} {} ', name, np.sum(indx_ok) )
 print(" Range downselect : ", np.sum(indx_ok), len(indx_ok))
 X_out = X_out[indx_ok]
 P_list = list(itertools.compress(P_list, indx_ok))  # https://stackoverflow.com/questions/18665873/filtering-a-list-based-on-a-list-of-booleans
@@ -250,6 +252,8 @@ for indx_P in np.arange(len(P_list)):
             continue
         if coord_names[indx] in ['mc','m1','m2','mtot']:
             fac = lal.MSUN_SI
+        if coord_names[indx] in lalsimutils.periodic_params:
+            X_out[indx_P] = np.mod(X_out[indx_P], lalsimutils.periodic_params[coord_names[indx]])
         P_list[indx_P].assign_param( coord_names[indx], X_out[indx_P,indx]*fac)
 
     if np.isnan(P.m1) or np.isnan(P.m2):  # don't allow nan mass
@@ -292,6 +296,9 @@ if len(opts.random_parameter) >0:
         P.assign_param(param,val)
 
 print(" The number of exported points is ", len(P_out))
+
+if opts.fail_if_empty and len(P_out)<1:
+    raise Exception(" Puff file will be empty ! Fail  without output ! You probably have settings which lead to either (a) a singular puff matrix (eg., duplicated coordinates or unused variables) or (b) your puff is far too large")
 
 # Export
 lalsimutils.ChooseWaveformParams_array_to_xml(P_out,fname=opts.inj_file_out,fref=P.fref)
