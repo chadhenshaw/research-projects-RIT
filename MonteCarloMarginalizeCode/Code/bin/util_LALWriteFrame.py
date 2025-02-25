@@ -15,6 +15,7 @@
 import argparse
 import numpy as np
 import RIFT.lalsimutils as lalsimutils
+import RIFT.likelihood.factored_likelihood as factored_likelihood
 import lalsimulation as lalsim
 import lalframe
 import lal
@@ -39,6 +40,8 @@ parser.add_argument("--incl",default=None,help="Set the inclination of L (at fre
 parser.add_argument("--mass1",default=10,type=float,help='Mass 1 (solar masses)')
 parser.add_argument("--mass2",default=1.4,type=float,help='Mass 2 (solar masses)')
 parser.add_argument("--verbose", action="store_true",default=False)
+parser.add_argument("--l-max",default=4,type=float,help='Lmax number of modes')
+parser.add_argument('--gen-hlmoft', action='store_true', help='Creates hoft from hlmoft')
 opts=  parser.parse_args()
 
 
@@ -71,7 +74,7 @@ P.taper = lalsimutils.lsu_TAPER_START  # force taper
 P.detector = opts.instrument
 if opts.approx == "EccentricTD":
     P.phaseO = 3
-P.print_params()
+
 
 
 T_est = lalsimutils.estimateWaveformDuration(P)
@@ -83,9 +86,20 @@ print(" Duration ", T_est)
 if T_est < opts.seglen:
     print(" Buffer length too short, automating retuning forced ")
 
+P.print_params()
 
 # Generate signal
-hoft = lalsimutils.hoft(P)   # include translation of source, but NOT interpolation onto regular time grid
+if opts.gen_hlmoft:
+    extra_waveform_args = {}
+    extra_waveform_args['fd_centering_factor']= 0.9 # default for hlmoft
+    hlmF, _= factored_likelihood.internal_hlm_generator(P, Lmax=opts.l_max, extra_waveform_kwargs=extra_waveform_args)
+    hlmT = {}
+    for mode in hlmF:
+        hlmT[mode] = lalsimutils.DataInverseFourier(hlmF[mode])        
+    hoft = lalsimutils.hoft_from_hlm(hlmT, P,return_complex=False)
+else:
+    # this basically doesn't work
+    hoft = lalsimutils.hoft(P)   # include translation of source, but NOT interpolation onto regular time grid
 epoch_orig = hoft.epoch
 # zero pad to be opts.seglen long, if necessary
 if opts.seglen/hoft.deltaT > hoft.data.length:
