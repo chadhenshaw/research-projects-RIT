@@ -95,78 +95,79 @@ TOL_DF = 1.e-6 # Tolerence for two deltaF's to agree
 #spin_convention = "radiation"
 spin_convention = "L"
 
-from functools import wraps
-def strip_ilwdchar(_ContentHandler):
-    """Wrap a LIGO_LW content handler to swap ilwdchar for int on-the-fly
-    when reading a document
-    This is adapted from :func:`ligo.skymap.utils.ilwd`, copyright
-    Leo Singer (GPL-3.0-or-later).
-    This is taken directly from https://github.com/gwpy/gwpy/blob/master/gwpy/io/ligolw.py#L92
-    """
-    from igwn_ligolw.lsctables import TableByName
-    from igwn_ligolw.table import (Column, TableStream)
-    from igwn_ligolw.types import (FromPyType, ToPyType)
+# from functools import wraps
+# def strip_ilwdchar(_ContentHandler):
+#     """Wrap a LIGO_LW content handler to swap ilwdchar for int on-the-fly
+#     when reading a document
+#     This is adapted from :func:`ligo.skymap.utils.ilwd`, copyright
+#     Leo Singer (GPL-3.0-or-later).
+#     This is taken directly from https://github.com/gwpy/gwpy/blob/master/gwpy/io/ligolw.py#L92
+#     """
+#     from igwn_ligolw.lsctables import TableByName
+#     from igwn_ligolw.table import (Column, TableStream)
+#     from igwn_ligolw.types import (FromPyType, ToPyType)
 
-    class IlwdMapContentHandler(_ContentHandler):
+#     class IlwdMapContentHandler(_ContentHandler):
 
-        def __init__(self, *args, **kwargs):
-            super().__init__(*args, **kwargs)
-            self._idconverter = {}
+#         def __init__(self, *args, **kwargs):
+#             super().__init__(*args, **kwargs)
+#             self._idconverter = {}
 
-        @wraps(_ContentHandler.startColumn)
-        def startColumn(self, parent, attrs):
-            result = super().startColumn(parent, attrs)
+#         @wraps(_ContentHandler.startColumn)
+#         def startColumn(self, parent, attrs):
+#             result = super().startColumn(parent, attrs)
 
-            # if an old ID type, convert type definition to an int
-            if result.Type == "ilwd:char":
-                old_type = ToPyType[result.Type]
+#             # if an old ID type, convert type definition to an int
+#             if result.Type == "ilwd:char":
+#                 old_type = ToPyType[result.Type]
 
-                def converter(old):
-                    return int(old_type(old))
+#                 def converter(old):
+#                     return int(old_type(old))
 
-                self._idconverter[(id(parent), result.Name)] = converter
-                result.Type = FromPyType[int]
+#                 self._idconverter[(id(parent), result.Name)] = converter
+#                 result.Type = FromPyType[int]
 
-            try:
-                validcolumns = TableByName[parent.Name].validcolumns
-            except KeyError:  # parent.Name not in TableByName
-                return result
-            if result.Name not in validcolumns:
-                stripped_column_to_valid_column = {
-                    Column.ColumnName(name): name
-                    for name in validcolumns
-                }
-                if result.Name in stripped_column_to_valid_column:
-                    result.setAttribute(
-                        'Name',
-                        stripped_column_to_valid_column[result.Name],
-                    )
+#             try:
+#                 validcolumns = TableByName[parent.Name].validcolumns
+#             except KeyError:  # parent.Name not in TableByName
+#                 return result
+#             if result.Name not in validcolumns:
+#                 stripped_column_to_valid_column = {
+#                     Column.ColumnName(name): name
+#                     for name in validcolumns
+#                 }
+#                 if result.Name in stripped_column_to_valid_column:
+#                     result.setAttribute(
+#                         'Name',
+#                         stripped_column_to_valid_column[result.Name],
+#                     )
 
-            return result
+#             return result
 
-        @wraps(_ContentHandler.startStream)
-        def startStream(self, parent, attrs):
-            result = super().startStream(parent, attrs)
-            if isinstance(result, TableStream):
-                loadcolumns = set(parent.columnnames)
-                if parent.loadcolumns is not None:
-                    loadcolumns &= set(parent.loadcolumns)
-                pid = id(parent)
-                result._tokenizer.set_types([
-                    self._idconverter.pop((pid, colname), pytype)
-                    if colname in loadcolumns else None
-                    for pytype, colname in zip(
-                        parent.columnpytypes,
-                        parent.columnnames,
-                    )
-                ])
-            return result
+#         @wraps(_ContentHandler.startStream)
+#         def startStream(self, parent, attrs):
+#             result = super().startStream(parent, attrs)
+#             if isinstance(result, TableStream):
+#                 loadcolumns = set(parent.columnnames)
+#                 if parent.loadcolumns is not None:
+#                     loadcolumns &= set(parent.loadcolumns)
+#                 pid = id(parent)
+#                 result._tokenizer.set_types([
+#                     self._idconverter.pop((pid, colname), pytype)
+#                     if colname in loadcolumns else None
+#                     for pytype, colname in zip(
+#                         parent.columnpytypes,
+#                         parent.columnnames,
+#                     )
+#                 ])
+#             return result
 
-    return IlwdMapContentHandler
+#     return IlwdMapContentHandler
 
 
 # updated in igwn_ligolw
-cthdler = strip_ilwdchar(ligolw.LIGOLWContentHandler) #defines a content handler to load xml grids
+#cthdler = strip_ilwdchar(ligolw.LIGOLWContentHandler) #defines a content handler to load xml grids
+cthdler = ligolw.LIGOLWContentHandler
 #lsctables.use_in(cthdler)
 
 
@@ -387,7 +388,7 @@ tex_dictionary  = {
   "s1y": r"$\chi_{1,y}$",
   "s2y": r"$\chi_{2,y}$",
   "eccentricity":"$e$",
-  "meanPerAno":"$l_gw$",
+  "meanPerAno":"$l_{gw}$",
   # tex labels for inherited LI names
  "a1z": r'$\chi_{1,z}$',
  "a2z": r'$\chi_{2,z}$',
@@ -1339,6 +1340,10 @@ class ChooseWaveformParams:
             return dLt
         if p == 'eccentricity_squared':
             return self.eccentricity**2
+        if p == 'ecc_cos_meanPerAno':
+            return self.eccentricity*np.cos(self.meanPerAno)
+        if p == 'ecc_sin_meanPerAno':
+            return self.eccentricity*np.sin(self.meanPerAno)
         if 'product(' in p:
             # Drop first and last characters
             a=p.replace(' ', '') # drop spaces
@@ -1797,9 +1802,11 @@ class ChooseWaveformParams:
         self.snr = row.alpha3   # lnL info
         # WARNING: alpha1, alpha2 used by ILE for weights!
         if hasattr(row, 'alpha'):
-            self.eos_table_index = row.alpha
-            if not(row.alpha):
-                self.eos_table_index = None
+            if not(row.alpha4):
+                self.eos_table_index = row.alpha
+            else:
+                if not(row.alpha):
+                    self.eos_table_index = None
         else:
             self.eos_table_index=None
     
@@ -1857,7 +1864,7 @@ class ChooseWaveformParams:
         row.alpha6 = self.lambda2
         row.alpha4 = self.eccentricity
         row.alpha = self.meanPerAno
-        if self.eos_table_index:
+        if self.eos_table_index and not self.eccentricity:
             row.alpha = self.eos_table_index
         if self.snr:
             row.alpha3 = self.snr
@@ -5143,6 +5150,17 @@ def convert_waveform_coordinates(x_in,coord_names=['mc', 'eta'],low_level_coord_
             coord_names_reduced.remove(p)
             x_out[:,indx_p_out] = x_in[:,indx_p_in]
 
+    if 'ecc_cos_meanPerAno' in coord_names_reduced and 'eccentricity' in low_level_coord_names and 'meanPerAno' in low_level_coord_names:
+        indx_p_out = coord_names.index('ecc_cos_meanPerAno')
+        indx_p_ecc = low_level_coord_names.index('eccentricity')
+        indx_p_ell = low_level_coord_names.index('meanPerAno')
+        x_out[:,indx_p_out] = x_in[:,indx_p_ecc]*np.cos(x_in[:,indx_p_ell])
+        coord_names_reduced.remove('ecc_cos_meanPerAno')
+        if 'ecc_sin_meanPerAno' in coord_names_reduced:
+            indx_p_out = coord_names.index('ecc_sin_meanPerAno')
+            x_out[:,indx_p_out] = x_in[:,indx_p_ecc]*np.sin(x_in[:,indx_p_ell])
+            coord_names_reduced.remove('ecc_sin_meanPerAno')
+            
     if 'mc' in low_level_coord_names and ('eta' in low_level_coord_names or 'delta_mc' in low_level_coord_names):
         indx_mc = low_level_coord_names.index('mc')
         eta_vals = np.zeros(len(x_in))
@@ -5165,7 +5183,7 @@ def convert_waveform_coordinates(x_in,coord_names=['mc', 'eta'],low_level_coord_
             coord_names_reduced.remove('m1')
             if 'm2' in coord_names_reduced:
                 indx_p_out = coord_names.index('m2')
-                x_out[:,indx_p_out] = m1_vals
+                x_out[:,indx_p_out] = m2_vals
                 coord_names_reduced.remove('m2')
 
     if 'delta_mc' in coord_names_reduced and 'eta' in low_level_coord_names:
@@ -5338,20 +5356,25 @@ def convert_waveform_coordinates(x_in,coord_names=['mc', 'eta'],low_level_coord_
             coord_names_reduced.remove('s2y')
             
     # Spin pseudo-cylindrical coordinate names, standard framing
-    if  ('s1z_bar' in low_level_coord_names) and ('phi1' in low_level_coord_names)  and ('s2z_bar' in low_level_coord_names) and ('phi2' in low_level_coord_names) and ('mc' in low_level_coord_names) and ('delta_mc' in low_level_coord_names):
+    if  ('s1z_bar' in low_level_coord_names) and ('phi1' in low_level_coord_names)  and ('s2z_bar' in low_level_coord_names) and ('phi2' in low_level_coord_names) and ('mc' in low_level_coord_names) and ('eta' in low_level_coord_names or 'delta_mc' in low_level_coord_names):
         indx_mc = low_level_coord_names.index('mc')
-        indx_delta = low_level_coord_names.index('delta_mc')
         indx_s1z = low_level_coord_names.index('s1z_bar')
         indx_s2z = low_level_coord_names.index('s2z_bar')
 
+        eta_vals = np.zeros(len(x_in))  
         s1z= x_in[:,indx_s1z]
         s2z= x_in[:,indx_s2z]
-
+        
         m1_vals =np.zeros(len(x_in))  
         m2_vals =np.zeros(len(x_in))  
-        eta_vals = np.zeros(len(x_in))  
-        eta_vals = 0.25*(1- x_in[:,indx_delta]**2)
+        if ('delta_mc' in low_level_coord_names):
+            indx_delta = low_level_coord_names.index('delta_mc')
+            eta_vals = 0.25*(1- x_in[:,indx_delta]**2)
+        elif 'eta' in low_level_coord_names:
+            indx_eta = low_level_coord_names.index('eta')
+            eta_vals = x_in[:,indx_eta]
         m1_vals,m2_vals = m1m2(x_in[:,indx_mc],eta_vals)
+
         if 'xi' in coord_names_reduced:
             indx_pout_xi = coord_names.index('xi')
             x_out[:,indx_pout_xi] = (m1_vals*s1z + m2_vals*s2z)/(m1_vals+m2_vals)

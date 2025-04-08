@@ -1,12 +1,47 @@
+0.0.17.3
+------------
+development tree is rift_O4c
+   - pseudo_pipe backwards compatibility fix for coinc file reading w/o eccentricity. PUFF settings for BNS use both
+     LambdaTilde and DeltaLambdaTilde to avoid loss of points. gwsignal phase shift hlm modes (rotation) phi_star=pi/2
+     to match convention. CIP/ILE plugin acess without portfolios. pp_RIFT/pp_RIFT_with_ini cleanup.  dag_utils
+     periodic_release for ILE file transfer issues.  PUFF lambda1,lambda2 in log coords. helper matter uses
+     lambda1,lambda2. **--internal-precompute-ignore-threshold** (default None) to future-protect analysis of
+     high-amplitude signals.  asimov-> pesummary handoff of calmarg output. (rc0)
+   - pp_RIFT_with_ini improve OSG use, sanity plots, various bugfixes ( mass range, dmax/dmin); GWSignalWriteFrame fixes for inj; PUFF reflection
+     fix; various demos (populations) and pp plotting scripts and waveform/CI plot script; pseudo_pipe
+     cip-expl-de-jobs-auto last explode sanity for n_eff (rc1)
+
+     
 0.0.17.2
 ------------
 development tree is rift_O4c
    - lalsimutils.periodic_params for plot_posterior_corner and puff; pipeline transverse puff better z coordinates **noteworthy**,
      ligo.lw->igwn_ligoow update, backend changes to CIP column order parsing to be more flexible, CIP lambda_min;
      ILE --internal-waveform-extra-kwargs for gwsignal, changing t_window;  pipeline --internal-use-oauthfiles;
-     hyperpipe convergence test nodes
+     hyperpipe convergence test nodes.  Mean anomaly merge. Disable old ilwdchar-compatible reading to reduce warning
+     messages. misc/dag_utils/write_ILE... now quotes, enabling passing arguments. asimov cleanup manual-extra-ile-args
+     and allow waveform/arguments. PUFF bugfix (only applied last).  rift_container.def with pyseobnr. asimov with ecc,
+     it0 eccentric arch, AV does cupy-based random numbers, fixing conflict with cosmo_sourceframe. dag_utils and related handle osdf
+     container identification better, also cip-request-disk. mcsamplerGPU np.isfinite fix. ILE less process_params output
+     (rc0)
+   - FYI coinc.xml files from MBTA/spiir malformed and produce parse errors.  calmarg: fix misnamed arguments in
+     calibration_reweighting causing block, fix handoff from asimov to find bilby ini files; also more RETRY. pp_RIFT_with_ini use
+     provided fmin/fmax/seglen correctly. helper initial grids respect force-mc-range. asimov boostrap from previous
+     samples, including coinc; note samples_utils gets pesummary/h5 snarfing tool.  eccentricity
+     (lalsimutils/pipeline/ILE/CEPP): multiple updates to enable TEOBResumSDali use (pull #104),
+     also --internal-cip-use-periodic-ecc-vars and related support, and minor bugfixes associated with meanPerAno merges
+     (rc1)
+   - PUFF issue resolved (lalsimutils convert_waveform_coordinates corner case for transverse puff+downselect), plus
+     provide for \eta=0,1/4 reflections to preserve points; asimov/rift.py logger, bootstraping; dag_utils argument
+     quoting to pass waveform dictionaries to ILE; pseudo_pipe/calibration_reweighting take fref, and also make files
+     unique. bugfix blocking change with row.alpha for extrinsic export from recent eccentricity merge
+     above. calibration_reweighting minor typo fix arg name (blocking error).
+     (rc2)
+   - asimov/rift.py edit to prevent getting stuck identifying job needing rescue, also more useful error message when
+     upstream dependency fail (calmarg needs bilby ini file).
+     (rc3)
+release is rc3
    
-
 0.0.17.1
 ------------
 development tree is rift_O4c

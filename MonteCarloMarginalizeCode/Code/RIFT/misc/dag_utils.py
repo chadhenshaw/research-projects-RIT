@@ -72,6 +72,59 @@ def generate_job_id():
     return md5(t + r).hexdigest()
 # From https://github.com/lscsoft/lalsuite/blob/master/lalinference/python/lalinference/lalinference_pipe_utils.py
 
+# from https://github.com/dask/dask-jobqueue/blob/main/dask_jobqueue/htcondor.py
+def _double_up_quotes(instr):
+    return instr.replace("'", "''").replace('"', '""')
+def quote_arguments(args):
+    """Quote a string or list of strings using the Condor submit file "new" argument quoting rules.
+
+    Returns
+    -------
+    str
+        The arguments in a quoted form.
+
+    Warnings
+    --------
+    You will need to surround the result in double-quotes before using it in
+    the Arguments attribute.
+
+    Examples
+    --------
+    >>> quote_arguments(["3", "simple", "arguments"])
+    '3 simple arguments'
+    >>> quote_arguments(["one", "two with spaces", "three"])
+    'one \'two with spaces\' three'
+    >>> quote_arguments(["one", "\"two\"", "spacy 'quoted' argument"])
+    'one ""two"" \'spacey \'\'quoted\'\' argument\''
+    """
+    if isinstance(args, str):
+        args_list = [args]
+    else:
+        args_list = args
+
+    quoted_args = []
+    for a in args_list:
+        qa = _double_up_quotes(a)
+        if " " in qa or "'" in qa:
+            qa = "'" + qa + "'"
+        quoted_args.append(qa)
+    return " ".join(quoted_args)
+
+def safely_quote_arg_str(arg_str):
+    """
+    See the document for https://htcondor.readthedocs.io/en/latest/man-pages/condor_submit.html
+    We need to carefully parse the argument string for quoted items (e.g., passing dictionaries) with quoted elements
+    """
+    # step 0: split into quoted arguments using standard "
+    if not ('"' in arg_str):
+        return quote_arguments
+    quote_breaks = arg_str.split('"')  # assume only one block of quotes to deal with
+    if len(quote_breaks) !=  3:
+        raise Exception(" Arg parsing: multiple quoted argument strings provided, not ready to handle ")
+    args0 = quote_arguments(quote_breaks[0].split()) # no quotes, so split on whitespace as usual
+    args2 = quote_arguments(quote_breaks[2].split()) # no quotes, so split on whitespace as usual
+    args1 = quote_arguments('"{}"'.format( quote_breaks[1])) # quote this properly, should be one argument
+    return "{} {} {}".format(args0,args1,args2)
 
 # for resolving environment variables
 def match_expr(my_list, my_expr):
@@ -437,7 +490,7 @@ def write_CIP_single_iteration_subdag(cip_worker_job,it,unique_postfix,subdag_di
 
 
 
-def write_CIP_sub(tag='integrate', exe=None, input_net='all.net',output='output-ILE-samples',universe="vanilla",out_dir=None,log_dir=None, use_eos=False,ncopies=1,arg_str=None,request_memory=8192,request_memory_flex=False, arg_vals=None, no_grid=False,request_disk=False, transfer_files=None,transfer_output_files=None,use_singularity=False,use_osg=False,use_simple_osg_requirements=False,singularity_image=None,max_runtime_minutes=None,condor_commands=None,**kwargs):
+def write_CIP_sub(tag='integrate', exe=None, input_net='all.net',output='output-ILE-samples',universe="vanilla",out_dir=None,log_dir=None, use_eos=False,ncopies=1,arg_str=None,request_memory=8192,request_memory_flex=False, arg_vals=None, no_grid=False,request_disk=False, transfer_files=None,transfer_output_files=None,use_singularity=False,use_osg=False,use_oauth_files=False,use_simple_osg_requirements=False,singularity_image=None,max_runtime_minutes=None,condor_commands=None,**kwargs):
     """
     Write a submit file for launching jobs to marginalize the likelihood over intrinsic parameters.
 
@@ -453,6 +506,12 @@ def write_CIP_sub(tag='integrate', exe=None, input_net='all.net',output='output-
         print(" FAIL : Need to specify transfer_files to use singularity at present!  (we will append the prescript; you should transfer any PSDs as well as the grid file ")
         sys.exit(0)
 
+    singularity_image_used = "{}".format(singularity_image) # make copy
+    extra_files = []
+    if singularity_image:
+        if 'osdf:' in singularity_image:
+            singularity_image_used  = "./{}".format(singularity_image.split('/')[-1])
+            extra_files += [singularity_image]
 
     exe = exe or which("util_ConstructIntrinsicPosterior_GenericCoordinates.py")
     if use_singularity:
@@ -473,8 +532,8 @@ def write_CIP_sub(tag='integrate', exe=None, input_net='all.net',output='output-
 
     # no grid
     if no_grid:
-        ile_job.add_condor_cmd("+DESIRED_SITES",'"nogrid"')
-        ile_job.add_condor_cmd("+flock_local",'true')
+        ile_job.add_condor_cmd("MY.DESIRED_SITES",'"nogrid"')
+        ile_job.add_condor_cmd("MY.flock_local",'true')
 
     requirements=[]
     if universe=='local':
@@ -552,7 +611,7 @@ def write_CIP_sub(tag='integrate', exe=None, input_net='all.net',output='output-
     if not(request_memory_flex):
         ile_job.add_condor_cmd('request_memory', str(request_memory)+"M") 
     if request_memory_flex:
-        ile_job.add_condor_cmd("+InitialRequestMemory",str(request_memory))
+        ile_job.add_condor_cmd("MY.InitialRequestMemory",str(request_memory))
         ile_job.add_condor_cmd('periodic_release', "HoldReasonCode =?= 34")
         ile_job.add_condor_cmd('request_memory',  'ifthenelse( LastHoldReasonCode=!=34, InitialRequestMemory, int(1.5 * MemoryUsage) )')
     if not(request_disk is False):
@@ -567,10 +626,13 @@ def write_CIP_sub(tag='integrate', exe=None, input_net='all.net',output='output-
         # Compare to https://github.com/lscsoft/lalsuite/blob/master/lalinference/python/lalinference/lalinference_pipe_utils.py
         ile_job.add_condor_cmd('request_CPUs', str(1))
         ile_job.add_condor_cmd('transfer_executable', 'False')
-        ile_job.add_condor_cmd("+SingularityBindCVMFS", 'True')
-        ile_job.add_condor_cmd("+SingularityImage", '"' + singularity_image + '"')
+        ile_job.add_condor_cmd("MY.SingularityBindCVMFS", 'True')
+        ile_job.add_condor_cmd("MY.SingularityImage", '"' + singularity_image_used + '"')
         requirements.append("HAS_SINGULARITY=?=TRUE")
 
+    if use_oauth_files:
+        # we are using some authentication to retrieve files from the file transfer list, for example, from distributed hosts, not just submit. eg urls provided
+            ile_job.add_condor_cmd('use_oauth_services',use_oauth_files)
     if use_osg:
            # avoid black-holing jobs to specific machines that consistently fail. Uses history attribute for ad
            #    https://htcondor.readthedocs.io/en/latest/classad-attributes/job-classad-attributes.html
@@ -610,12 +672,11 @@ def write_CIP_sub(tag='integrate', exe=None, input_net='all.net',output='output-
     except:
         print(" LIGO accounting information not available.  You must add this manually to integrate.sub !")
         
-    
     if not transfer_files is None:
         if not isinstance(transfer_files, list):
-            fname_str=transfer_files
+            fname_str=transfer_files + ' '.join(extra_files)
         else:
-            fname_str = ','.join(transfer_files)
+            fname_str = ','.join(transfer_files + extra_files)
         fname_str=fname_str.strip()
         ile_job.add_condor_cmd('transfer_input_files', fname_str)
         ile_job.add_condor_cmd('should_transfer_files','YES')
@@ -677,8 +738,8 @@ def write_puff_sub(tag='puffball', exe=None, input_net='output-ILE-samples',outp
 
     # no grid
     if no_grid:
-        ile_job.add_condor_cmd("+DESIRED_SITES",'"nogrid"')
-        ile_job.add_condor_cmd("+flock_local",'true')
+        ile_job.add_condor_cmd("MY.DESIRED_SITES",'"nogrid"')
+        ile_job.add_condor_cmd("MY.flock_local",'true')
 
     ile_sub_name = tag + '.sub'
     ile_job.set_sub_file(ile_sub_name)
@@ -760,6 +821,14 @@ def write_ILE_sub_simple(tag='integrate', exe=None, log_dir=None, use_eos=False,
         print(" FAIL : Need to specify transfer_files to use singularity at present!  (we will append the prescript; you should transfer any PSDs as well as the grid file ")
         sys.exit(0)
 
+    singularity_image_used = "{}".format(singularity_image) # make copy
+    extra_files = []
+    if singularity_image:
+        if 'osdf:' in singularity_image:
+            singularity_image_used  = "./{}".format(singularity_image.split('/')[-1])
+            extra_files += [singularity_image]
+
+        
     exe = exe or which("integrate_likelihood_extrinsic")
     frames_local = None
     if use_singularity:
@@ -821,6 +890,9 @@ echo Starting ...
     #
     arg_str = arg_str.lstrip() # remove leading whitespace and minus signs
     arg_str = arg_str.lstrip('-')
+    if '"' in arg_str:
+        arg_str = safely_quote_arg_str(arg_str)
+        #arg_str = arg_str.replace('"','""') # double quote for condor - weird but true
     ile_job.add_opt(arg_str,'')  # because we must be idiotic in how we pass arguments, I strip off the first two elements of the line
 #    ile_job.add_opt(arg_str[2:],'')  # because we must be idiotic in how we pass arguments, I strip off the first two elements of the line
 
@@ -913,8 +985,8 @@ echo Starting ...
         # Compare to https://github.com/lscsoft/lalsuite/blob/master/lalinference/python/lalinference/lalinference_pipe_utils.py
         ile_job.add_condor_cmd('request_CPUs', str(1))
         ile_job.add_condor_cmd('transfer_executable', 'False')
-        ile_job.add_condor_cmd("+SingularityBindCVMFS", 'True')
-        ile_job.add_condor_cmd("+SingularityImage", '"' + singularity_image + '"')
+        ile_job.add_condor_cmd("MY.SingularityBindCVMFS", 'True')
+        ile_job.add_condor_cmd("MY.SingularityImage", '"' + singularity_image_used + '"')
         requirements.append("HAS_SINGULARITY=?=TRUE")
 #               if not(use_simple_osg_requirements):
 #                requirements.append("HAS_CVMFS_LIGO_CONTAINERS=?=TRUE")
@@ -942,7 +1014,7 @@ echo Starting ...
 #           if not(use_simple_osg_requirements):
 #               requirements.append("IS_GLIDEIN=?=TRUE")
            # avoid black-holing jobs to specific machines that consistently fail. Uses history attribute for ad
-           ile_job.add_condor_cmd('periodic_release','(HoldReasonCode == 45) && (HoldReasonSubCode == 0)')
+           ile_job.add_condor_cmd('periodic_release','((HoldReasonCode == 45) && (HoldReasonSubCode == 0)) || (HoldReasonCode == 13)')
            ile_job.add_condor_cmd('job_machine_attrs','Machine')
            ile_job.add_condor_cmd('job_machine_attrs_history_length','4')
 #           for indx in [1,2,3,4]:
@@ -993,7 +1065,7 @@ echo Starting ...
 
 
 #    if use_osg:
-#        ile_job.add_condor_cmd("+OpenScienceGrid",'True')
+#        ile_job.add_condor_cmd("MY.OpenScienceGrid",'True')
 #    if use_cvmfs_frames:
 #        transfer_files += ["../local.cache"]
     # To change interactively:
@@ -1022,9 +1094,9 @@ echo Starting ...
 
     if not transfer_files is None:
         if not isinstance(transfer_files, list):
-            fname_str=transfer_files
+            fname_str=transfer_files + ' '.join(extra_files)
         else:
-            fname_str = ','.join(transfer_files)
+            fname_str = ','.join(transfer_files+extra_files)
         fname_str=fname_str.strip()
         ile_job.add_condor_cmd('transfer_input_files', fname_str)
         ile_job.add_condor_cmd('should_transfer_files','YES')
@@ -1151,8 +1223,8 @@ def write_consolidate_sub_simple(tag='consolidate', exe=None, base=None,target=N
 
     # no grid
     if no_grid:
-        ile_job.add_condor_cmd("+DESIRED_SITES",'"nogrid"')
-        ile_job.add_condor_cmd("+flock_local",'true')
+        ile_job.add_condor_cmd("MY.DESIRED_SITES",'"nogrid"')
+        ile_job.add_condor_cmd("MY.flock_local",'true')
 
 
 
@@ -1251,8 +1323,8 @@ fi
 
     # no grid
     if no_grid:
-        ile_job.add_condor_cmd("+DESIRED_SITES",'"nogrid"')
-        ile_job.add_condor_cmd("+flock_local",'true')
+        ile_job.add_condor_cmd("MY.DESIRED_SITES",'"nogrid"')
+        ile_job.add_condor_cmd("MY.flock_local",'true')
 
     try:
         ile_job.add_condor_cmd('accounting_group',os.environ['LIGO_ACCOUNTING'])
@@ -1284,8 +1356,8 @@ def write_convert_sub(tag='convert', exe=None, file_input=None,file_output=None,
 
     # no grid
     if no_grid:
-        ile_job.add_condor_cmd("+DESIRED_SITES",'"nogrid"')
-        ile_job.add_condor_cmd("+flock_local",'true')
+        ile_job.add_condor_cmd("MY.DESIRED_SITES",'"nogrid"')
+        ile_job.add_condor_cmd("MY.flock_local",'true')
 
     ile_sub_name = tag + '.sub'
     ile_job.set_sub_file(ile_sub_name)
@@ -1315,8 +1387,8 @@ def write_convert_sub(tag='convert', exe=None, file_input=None,file_output=None,
 
     # no grid
     if no_grid:
-        ile_job.add_condor_cmd("+DESIRED_SITES",'"nogrid"')
-        ile_job.add_condor_cmd("+flock_local",'true')
+        ile_job.add_condor_cmd("MY.DESIRED_SITES",'"nogrid"')
+        ile_job.add_condor_cmd("MY.flock_local",'true')
 
     try:
         ile_job.add_condor_cmd('accounting_group',os.environ['LIGO_ACCOUNTING'])
@@ -1376,8 +1448,8 @@ def write_test_sub(tag='converge', exe=None,samples_files=None, base=None,target
 
     # no grid
     if no_grid:
-        ile_job.add_condor_cmd("+DESIRED_SITES",'"nogrid"')
-        ile_job.add_condor_cmd("+flock_local",'true')
+        ile_job.add_condor_cmd("MY.DESIRED_SITES",'"nogrid"')
+        ile_job.add_condor_cmd("MY.flock_local",'true')
 
     try:
         ile_job.add_condor_cmd('accounting_group',os.environ['LIGO_ACCOUNTING'])
@@ -1559,8 +1631,8 @@ def write_psd_sub_BW_monoblock(tag='PSD_BW_mono', exe=None, log_dir=None, ncopie
 
     # no grid
     if no_grid:
-        ile_job.add_condor_cmd("+DESIRED_SITES",'"nogrid"')
-        ile_job.add_condor_cmd("+flock_local",'true')
+        ile_job.add_condor_cmd("MY.DESIRED_SITES",'"nogrid"')
+        ile_job.add_condor_cmd("MY.flock_local",'true')
 
 
 
@@ -1916,8 +1988,8 @@ def write_resample_sub(tag='resample', exe=None, file_input=None,file_output=Non
 
     # no grid
     if no_grid:
-        ile_job.add_condor_cmd("+DESIRED_SITES",'"nogrid"')
-        ile_job.add_condor_cmd("+flock_local",'true')
+        ile_job.add_condor_cmd("MY.DESIRED_SITES",'"nogrid"')
+        ile_job.add_condor_cmd("MY.flock_local",'true')
 
 
     try:
@@ -1943,7 +2015,7 @@ def write_cat_sub(tag='cat', exe=None, file_prefix=None,file_postfix=None,file_o
     cmdname = 'catjob.sh'
     with open(cmdname,'w') as f:
         f.write("#! /bin/bash\n")
-        f.write(exe+"  . -name '"+file_prefix+"*"+file_postfix+"' -exec cat {} \; | sort -r | uniq > "+file_output+";\n")
+        f.write(exe+"  . -name '"+file_prefix+"*"+file_postfix+r"' -exec cat {} \; | sort -r | uniq > "+file_output+";\n")
         f.write(exe_switch + " 'm1 ' '# m1 ' "+file_output)  # add standard prefix
         os.system("chmod a+x "+cmdname)
 
@@ -1953,8 +2025,8 @@ def write_cat_sub(tag='cat', exe=None, file_prefix=None,file_postfix=None,file_o
         requirements.append("IS_GLIDEIN=?=undefined")
     # no grid
     if no_grid:
-        ile_job.add_condor_cmd("+DESIRED_SITES",'"nogrid"')
-        ile_job.add_condor_cmd("+flock_local",'true')
+        ile_job.add_condor_cmd("MY.DESIRED_SITES",'"nogrid"')
+        ile_job.add_condor_cmd("MY.flock_local",'true')
 
 
     ile_sub_name = tag + '.sub'
@@ -2008,7 +2080,7 @@ def write_convertpsd_sub(tag='convert_psd', exe=None, ifo=None,file_input=None,t
 
     if not (target_dir is None):
         # Copy output PSD into place
-        ile_job.add_condor_cmd("+PostCmd", '" cp '+ifo+'-psd.xml.gz ' + target_dir +'"')
+        ile_job.add_condor_cmd("MY.PostCmd", '" cp '+ifo+'-psd.xml.gz ' + target_dir +'"')
 
     ile_job.add_condor_cmd('getenv', default_getenv_value)
     try:
@@ -2057,8 +2129,8 @@ def write_joingrids_sub(tag='join_grids', exe=None, universe='vanilla', input_pa
 
     # no grid
     if no_grid:
-        ile_job.add_condor_cmd("+DESIRED_SITES",'"nogrid"')
-        ile_job.add_condor_cmd("+flock_local",'true')
+        ile_job.add_condor_cmd("MY.DESIRED_SITES",'"nogrid"')
+        ile_job.add_condor_cmd("MY.flock_local",'true')
 
     ile_sub_name = tag + '.sub'
     ile_job.set_sub_file(ile_sub_name)
@@ -2076,7 +2148,7 @@ def write_joingrids_sub(tag='join_grids', exe=None, universe='vanilla', input_pa
     ile_job.set_stdout_file("%s%s-%s.out" % (log_dir, tag, uniq_str))
 #    ile_job.set_stdout_file(fname_out)
 
-#    ile_job.add_condor_cmd("+PostCmd",  ' "' + gzip + ' ' +fname_out + '"')
+#    ile_job.add_condor_cmd("MY.PostCmd",  ' "' + gzip + ' ' +fname_out + '"')
 
     explode_str = ""
     explode_str += " {}/{}.xml.gz ".format(working_dir,output_base)  # base result from fitting job
@@ -2140,7 +2212,7 @@ def write_subdagILE_sub(tag='subdag_ile', full_path_name=True, exe=None, univers
     ile_job.set_stdout_file("%s%s-%s.out" % (log_dir, tag, uniq_str))
 #    ile_job.set_stdout_file(fname_out)
 
-#    ile_job.add_condor_cmd("+PostCmd",  ' "' + gzip + ' ' +fname_out + '"')
+#    ile_job.add_condor_cmd("MY.PostCmd",  ' "' + gzip + ' ' +fname_out + '"')
 
     ile_job.add_condor_cmd('getenv', default_getenv_value)
     try:
@@ -2235,13 +2307,17 @@ def write_calibration_uncertainty_reweighting_sub(tag='Calib_reweight', exe=None
         else:
             ile_job.add_opt(opt.replace("_", "-"), str(param))
 
-    ile_job.add_condor_cmd('getenv', default_getenv_value)
+    getenv_calmarg = 'PATH,PYTHONPATH,LIBRARY_PATH,LD_LIBRARY_PATH,*RIFT*' # local !
+    if not(default_getenv_value == 'True'):
+        ile_job.add_condor_cmd('getenv', default_getenv_value)
+    else:
+        ile_job.add_condor_cmd('getenv', getenv_calmarg)
     ile_job.add_condor_cmd('request_memory', str(request_memory)+"M")
 
     # no grid
     if no_grid:
-        ile_job.add_condor_cmd("+DESIRED_SITES",'"nogrid"')
-        ile_job.add_condor_cmd("+flock_local",'true')
+        ile_job.add_condor_cmd("MY.DESIRED_SITES",'"nogrid"')
+        ile_job.add_condor_cmd("MY.flock_local",'true')
 
     # Write requirements
     ile_job.add_condor_cmd('requirements', '&&'.join('({0})'.format(r) for r in requirements))
@@ -2446,8 +2522,8 @@ def write_bilby_pickle_sub(tag='Bilby_pickle', exe=None, universe='local', log_d
 
     # no grid
     if no_grid:
-        ile_job.add_condor_cmd("+DESIRED_SITES",'"nogrid"')
-        ile_job.add_condor_cmd("+flock_local",'true')
+        ile_job.add_condor_cmd("MY.DESIRED_SITES",'"nogrid"')
+        ile_job.add_condor_cmd("MY.flock_local",'true')
 
     # Write requirements
     ile_job.add_condor_cmd('requirements', '&&'.join('({0})'.format(r) for r in requirements))
@@ -2519,8 +2595,8 @@ def write_comov_distance_reweighting_sub(tag='Comov_dist', comov_distance_reweig
 
     # no grid
     if no_grid:
-        ile_job.add_condor_cmd("+DESIRED_SITES",'"nogrid"')
-        ile_job.add_condor_cmd("+flock_local",'true')
+        ile_job.add_condor_cmd("MY.DESIRED_SITES",'"nogrid"')
+        ile_job.add_condor_cmd("MY.flock_local",'true')
 
 
     # Write requirements
@@ -2594,8 +2670,8 @@ def write_convert_ascii_to_h5_sub(tag='Convert_ascii2h5', convert_ascii_to_h5_ex
 
     # no grid
     if no_grid:
-        ile_job.add_condor_cmd("+DESIRED_SITES",'"nogrid"')
-        ile_job.add_condor_cmd("+flock_local",'true')
+        ile_job.add_condor_cmd("MY.DESIRED_SITES",'"nogrid"')
+        ile_job.add_condor_cmd("MY.flock_local",'true')
 
     # Write requirements
     ile_job.add_condor_cmd('requirements', '&&'.join('({0})'.format(r) for r in requirements))
@@ -2645,8 +2721,8 @@ def write_hyperpost_sub(tag='HYPER', exe=None, input_net='all.marg_net',output='
 
     # no grid
     if no_grid:
-        ile_job.add_condor_cmd("+DESIRED_SITES",'"nogrid"')
-        ile_job.add_condor_cmd("+flock_local",'true')
+        ile_job.add_condor_cmd("MY.DESIRED_SITES",'"nogrid"')
+        ile_job.add_condor_cmd("MY.flock_local",'true')
 
     requirements=[]
     if universe=='local':
@@ -2719,8 +2795,8 @@ def write_hyperpost_sub(tag='HYPER', exe=None, input_net='all.marg_net',output='
         # Compare to https://github.com/lscsoft/lalsuite/blob/master/lalinference/python/lalinference/lalinference_pipe_utils.py
         ile_job.add_condor_cmd('request_CPUs', str(1))
         ile_job.add_condor_cmd('transfer_executable', 'False')
-        ile_job.add_condor_cmd("+SingularityBindCVMFS", 'True')
-        ile_job.add_condor_cmd("+SingularityImage", '"' + singularity_image + '"')
+        ile_job.add_condor_cmd("MY.SingularityBindCVMFS", 'True')
+        ile_job.add_condor_cmd("MY.SingularityImage", '"' + singularity_image + '"')
         requirements.append("HAS_SINGULARITY=?=TRUE")
 
     if use_osg:

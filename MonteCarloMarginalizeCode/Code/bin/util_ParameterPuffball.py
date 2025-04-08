@@ -60,6 +60,9 @@ opts=  parser.parse_args()
 if opts.random_parameter is None:
     opts.random_parameter = []
 
+# these parameters are POSITIVE-DEFINITE, so we should perform puff in their natural log to prevent negative values
+log_coord_names = ['lambda1', 'lambda2', 'LambdaTilde']
+    
 # Extract parameter names
 coord_names = opts.parameter # Used  in fit
 #if opts.parameter_nofit:
@@ -141,6 +144,11 @@ for P in P_list:
 dat_out = np.array(dat_out)
 X =dat_out[:,0:len(coord_names)]
 
+# Perform log transformation on variables
+for indx, name  in enumerate(coord_names):
+    if name in log_coord_names:
+        print(" log transform for ", name)
+        X[:,indx] = np.log(X[:,indx])
 
 # Measure covariance matrix and generate random errors
 if len(coord_names) >1:
@@ -171,11 +179,26 @@ if len(coord_names) >1:
     rv = scipy.stats.multivariate_normal(mean=np.zeros(len(coord_names)), cov=cov,allow_singular=True)  # they are just complaining about dynamic range of parameters, usually
     delta_X = rv.rvs(size=len(X))
     X_out = X+delta_X
+    if 'eta' in coord_names:
+        indx_eta = coord_names.index('eta')
+        X_out[:,indx_eta] = np.where(X_out[:,indx_eta] > 1/4, 1/2- X_out[:,indx_eta], X_out[:,indx_eta]) # reflection boundary condition, preserve points
+        X_out[:,indx_eta] = np.where(X_out[:,indx_eta] < 0, -X_out[:,indx_eta], X_out[:,indx_eta]) # reflection on other side
 else:
     sigma = np.std(X)
     cov = sigma*sigma
     delta_X =np.random.normal(size=len(coord_names), scale=sigma)
     X_out = X+delta_X
+    if 'eta' in coord_names:
+        indx_eta = coord_names.index('eta')
+        X_out[:,indx_eta] = np.where(X_out[:,indx_eta] > 1/4, 1/2- X_out[:,indx_eta], X_out[:,indx_eta]) # reflection boundary condition, preserve points
+        X_out[:,indx_eta] = np.where(X_out[:,indx_eta] < 0, -X_out[:,indx_eta], X_out[:,indx_eta]) # reflection on other side
+
+# Undo natural logarithm
+for indx, name  in enumerate(coord_names):
+    if name in log_coord_names:
+        print(" undoing log transform for ", name)
+        X_out[:,indx] = np.exp(X_out[:,indx])
+
 
 # Sanity check parameters
 #for indx in np.arange(len(coord_names)):
@@ -192,10 +215,10 @@ names_downselect = list(downselect_dict.keys())
 x_out_down = lalsimutils.convert_waveform_coordinates(X_out, coord_names=names_downselect, low_level_coord_names=coord_names)
 indx_ok = np.ones(len(x_out_down),dtype=bool)
 for indx, name in enumerate(names_downselect):
-    indx_ok = np.logical_and(indx_ok,  np.logical_not(np.isnan(x_out_down[:,indx])))  
-    indx_ok = np.logical_and(indx_ok,  x_out_down[:,indx]< downselect_dict[name][1] )
-    indx_ok = np.logical_and(indx_ok,  x_out_down[:,indx]> downselect_dict[name][0] )
-    print('   Increment downselect : {} {} ', name, np.sum(indx_ok) )
+    indx_ok = np.logical_and(indx_ok,  np.logical_not(np.isnan(x_out_down[:,indx])))
+    indx_ok = np.logical_and(indx_ok,  x_out_down[:,indx]<= downselect_dict[name][1] )
+    indx_ok = np.logical_and(indx_ok,  x_out_down[:,indx]>= downselect_dict[name][0] )
+    print('   Increment downselect : {} {} '.format(name, np.sum(indx_ok) ))
 print(" Range downselect : ", np.sum(indx_ok), len(indx_ok))
 X_out = X_out[indx_ok]
 P_list = list(itertools.compress(P_list, indx_ok))  # https://stackoverflow.com/questions/18665873/filtering-a-list-based-on-a-list-of-booleans

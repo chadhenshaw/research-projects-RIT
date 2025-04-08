@@ -52,6 +52,9 @@ optp.add_option("--fref",default=20,type=float,help="Reference frequency. Depend
 optp.add_option("--target-size",default=2000,type=int)
 optp.add_option("--use-extrinsic",action='store_true')
 optp.add_option("--use-no-spin",action='store_true')
+optp.add_option("--use-aligned-spin",action='store_true')
+optp.add_option("--add-eccentricity-params",action='store_true')
+optp.add_option("--ecc-max",type=float,default=0.1)
 opts, args = optp.parse_args()
 opts.output_xml = opts.output_xml.replace('.xml.gz', '') # Strip trailing xml, as it will be added later
 
@@ -111,6 +114,16 @@ for indx in np.arange(opts.target_size):
     P.approx = lalsim.GetApproximantFromString(opts.approx)
     if opts.use_no_spin:
            True; 
+    elif 'a1x' in samples_in.dtype.names and 'a2x' in samples_in.dtype.names:
+            True  # we have already parsed in what we need or pesummary has provided it for us, so we can align the spins
+            P.s1x = samples_in['a1x'][fac_reduce*indx]
+            P.s1y = samples_in['a1y'][fac_reduce*indx]
+            P.s1z = samples_in['a1z'][fac_reduce*indx]
+            P.s2x = samples_in['a2x'][fac_reduce*indx]
+            P.s2y = samples_in['a2y'][fac_reduce*indx]
+            P.s2z = samples_in['a2z'][fac_reduce*indx]
+            if 'incl' in samples_in.dtype.names:
+                    P.incl = samples_in['incl'][fac_reduce*indx]
     elif "phi_jl" in samples_in.dtype.names:
       P.init_via_system_frame( 
          thetaJN=samples_in["theta_jn"][fac_reduce*indx],
@@ -161,6 +174,15 @@ for indx in np.arange(opts.target_size):
             P.phi   = samples_in["ra"][fac_reduce*indx]
             P.dist  = samples_in["distance"][fac_reduce*indx]*lal.PC_SI*1e6
 
+    if opts.use_aligned_spin:  # redundant, see --force-aligned below
+            P.s1y=0
+            P.s1x=0
+            P.s2y=0
+            P.s2x=0
+    if opts.add_eccentricity_params and P.eccentricity < 1e-5:
+            P.meanPerAno = np.random.uniform(0,2*np.pi)
+            P.eccentricity = np.random.uniform(0,opts.ecc_max) # some convervative range
+            
     if ros_debug:
         if 'iota' in samples_in.dtype.names:
                 print( " Target inclination (should be equal) ", P.incl, samples_in["iota"][fac_reduce*indx])  # NOT ALWAYS CONSISTENT

@@ -391,8 +391,8 @@ if not(opts.no_adapt_parameter):
     opts.no_adapt_parameter =[] # needs to default to empty list
 ECC_MAX = opts.ecc_max
 ECC_MIN = opts.ecc_min
-MEANPERANO_MAX = 0.0 
-MEANPERANO_MIN = 2*np.pi 
+MEANPERANO_MAX = 2*np.pi
+MEANPERANO_MIN = 0
 no_plots = no_plots |  opts.no_plots
 lnL_shift = 0
 lnL_default_large_negative = -500
@@ -914,7 +914,7 @@ prior_map  = { "mtot": M_prior, "q":q_prior, "s1z":s_component_uniform_prior, "s
     's2z_bar':normalized_zbar_prior,
     # Other priors
     'eccentricity':eccentricity_prior,
-    'eccentricity':eccentricity_squared_prior,
+    'eccentricity_squared':eccentricity_squared_prior,
     'meanPerAno':meanPerAno_prior,
     'chi_pavg':precession_prior,
     'chi_prms':precession_prior,
@@ -1649,13 +1649,6 @@ elif opts.use_eccentricity:
     else:
         col_lnL += 1
         col_eccentricity = col_lnL -1
-    if opts.use_meanPerAno:
-        print(" Eccentricity input: [",ECC_MIN, ", ",ECC_MAX, "]")
-        print(" MeanPerAno input: [",MEANPERANO_MIN, ", ",MEANPERANO_MAX, "]")
-        col_lnL += 2
-    else:
-        print(" Eccentricity input: [",ECC_MIN, ", ",ECC_MAX, "]")
-        col_lnL += 1
 if opts.input_distance:
     print(" Distance input")
     col_lnL +=1
@@ -2272,6 +2265,7 @@ elif opts.sampler_method == "NFlow":
     opts.internal_use_lnL= True  # required!
 elif opts.sampler_method == "portfolio":
     use_portfolio=True
+    opts.internal_use_lnL=True  # required, we only implement those scenarios right now
     sampler = None
     sampler_list = []
     sampler_types = opts.sampler_portfolio
@@ -2281,7 +2275,7 @@ elif opts.sampler_method == "portfolio":
         if name =='GMM':
             sampler = mcsamplerEnsemble.MCSampler()
             opts.sampler_method = 'GMM'  # this will force the creation/parsing of GMM-specific arguments below, so they are properly passed
-        if name == "adaptive_cartesian_gpu":
+        if name == "adaptive_cartesian_gpu" or name =='AC':
             sampler = mcsamplerGPU.MCSampler()
             sampler.xpy = xpy_default
             sampler.identity_convert=identity_convert
@@ -2302,6 +2296,8 @@ elif opts.sampler_method == "portfolio":
         print('PORTFOLIO: adding {} '.format(name))
         sampler_list.append(sampler)
     sampler = mcsamplerPortfolio.MCSampler(portfolio=sampler_list)
+elif opts.sampler_method in mcsamplerPortfolio.known_pipelines: # access from plugins
+  sampler = mcsamplerPortfolio.known_pipelines[opts.sampler_method]()
 
 
 ##

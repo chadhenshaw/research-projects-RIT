@@ -37,10 +37,12 @@ parser.add_argument("--seglen", type=float,default=16., help="Default window siz
 parser.add_argument("--start", type=int,default=None)
 parser.add_argument("--stop", type=int,default=None)
 parser.add_argument("--fref", dest='fref', type=float, default=0.0, help="Waveform reference frequency [template]. Required, default is 0 (coalescence).")
+parser.add_argument("--l-max",default=4,type=int,help='L-max modes in injection')
 parser.add_argument("--incl",default=None,help="Set the inclination of L (at fref). Particularly helpful for aligned spin tests")
 parser.add_argument("--mass1",default=10,type=float,help='Mass 1 (solar masses)')
 parser.add_argument("--mass2",default=1.4,type=float,help='Mass 2 (solar masses)')
 parser.add_argument("--verbose", action="store_true",default=False)
+parser.add_argument("--use-hlms-as-injections", action="store_true",default=False)
 opts=  parser.parse_args()
 
 
@@ -74,6 +76,7 @@ else:
 print("Approx =",P.approx)
 P.taper = lalsimutils.lsu_TAPER_START  # force taper
 P.detector = opts.instrument
+P.fref = opts.fref
 if opts.approx == "EccentricTD":
     P.phaseO = 3
 #P.print_params()
@@ -81,17 +84,25 @@ if opts.approx == "EccentricTD":
 
 T_est = lalsimutils.estimateWaveformDuration(P)
 T_est = P.deltaT*lalsimutils.nextPow2(T_est/P.deltaT)
-if T_est < opts.seglen:
-    T_est =opts.seglen
+if T_est > opts.seglen:
+    print(" WARNING: THE SIGNAL WILL LIKELY BE TRUNCATED when writing the frame, which is VERY BAD ")
+T_est =opts.seglen
 P.deltaF = 1./T_est
 print(" Duration ", T_est)
-if T_est < opts.seglen:
-    print(" Buffer length too short, automating retuning forced ")
+#if T_est < opts.seglen:
+#    print(" Buffer length too short, automating retuning forced ")
 
 
 # Generate signal
 #hoft = lalsimutils.hoft(P)   # include translation of source, but NOT interpolation onto regular time grid
-hoft = gwsignal.hoft(P,approx_string=opts.approx)
+#Option to use hlms as injection instead of hoft directly (motivation: saw slight differences between hoft and hlmoft for TEOBResumSDALI)
+if not (opts.use_hlms_as_injections):
+    print("Injecting with hoft")
+    hoft = gwsignal.hoft(P,approx_string=opts.approx)
+else:
+    print("Injecting with hlms")
+    hlm = gwsignal.hlmoft(P,Lmax=opts.l_max, approx_string = str(opts.approx))
+    hoft = lalsimutils.hoft_from_hlm(hlm,P)
 # zero pad to be opts.seglen long, if necessary
 if opts.seglen/hoft.deltaT > hoft.data.length:
     TDlenGoal = int(opts.seglen/hoft.deltaT)
@@ -155,7 +166,7 @@ if opts.verbose:
     import os
     from matplotlib import pyplot as plt
     # First must create corresponding cache file
-    os.system("echo "+ fname+ " | lalapps_path2cache   > test.cache")
+    os.system("echo "+ fname+ " | lal_path2cache   > test.cache")
     # Now I can read it
     # Beware that the results are OFFSET FROM ONE ANOTHER due to PADDING,
     #    but that the time associations are correct

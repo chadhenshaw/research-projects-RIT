@@ -94,9 +94,13 @@ def retrieve_event_from_coinc(fname_coinc):
     event_dict["s2z"] = row.spin2z
     if hasattr(row, 'alpha4'):
         event_dict["eccentricity"] = row.alpha4
+        if hasattr(row, 'alpha'):
+            event_dict["meanPerAno"] = row.alpha
+        else:
+            event_dict["meanPerAno"] = None
     else:
         event_dict["eccentricity"] = None
-    event_dict["meanPerAno"] = row.alpha
+        event_dict["meanPerAno"] = None
     event_dict["IFOs"] = list(set(ifo_list))
     max_snr_idx = snr_list.index(max(snr_list))
     event_dict['SNR'] = snr_list[max_snr_idx]
@@ -161,14 +165,18 @@ parser.add_argument("--assume-matter-eos",default=None,type=str, help="Force ana
 parser.add_argument("--assume-matter-conservatively",action='store_true',help="If present, the code will use the full prior range for exploration and sampling. [Without this option, the initial grid is limited to a physically plausible range in lambda-i")
 parser.add_argument("--assume-matter-but-primary-bh",action='store_true',help="If present, the code will add options necessary to manage tidal arguments for the smaller body ONLY. (Usually pointless)")
 parser.add_argument("--internal-tabular-eos-file",type=str,default=None,help="Tabular file of EOS to use.  The default prior will be UNIFORM in this table!")
+parser.add_argument("--sample-eccentricity-squared",action='store_true', help="Option for sampling as well as fitting in eccentricity_squared instead of fitting in eccentricity_squared and sampling in eccentricity (also need option --use-eccentricity-squared")
+parser.add_argument("--use-eccentricity-squared",action='store_true', help="Allows for fitting and sampling in eccentricity_squared instead of eccentricity")
 parser.add_argument("--assume-eccentric",action='store_true', help="Add eccentric options for each part of analysis")
 parser.add_argument("--use-meanPerAno",action='store_true', help="Add meanPerAno options for each part of analysis")
+parser.add_argument("--internal-cip-use-periodic-ecc-vars",action='store_true', help="use e cos ell, e sin ell as fitting variables ")
 parser.add_argument("--assume-lowlatency-tradeoffs",action='store_true', help="Force analysis with various low-latency tradeoffs (e.g., drop spin 2, use aligned, etc)")
 parser.add_argument("--assume-highq",action='store_true', help="Force analysis with the high-q strategy, neglecting spin2. Passed to 'helper'")
 parser.add_argument("--assume-well-placed",action='store_true',help="If present, the code will adopt a strategy that assumes the initial grid is very well placed, and will minimize the number of early iterations performed. Not as extrme as --propose-flat-strategy")
 parser.add_argument("--ile-distance-prior",default=None,help="If present, passed through to the distance prior option.   If provided, BLOCKS distance marginalization")
 parser.add_argument("--internal-ile-buffer-after-trigger",default=2,type=float,help="Provided to allow user to change time after trigger. NOT FULLY IMPLEMENTED")
 parser.add_argument("--internal-ile-request-disk",help="Use if you are transferring large files, or if you otherwise expect a lot of data ")
+parser.add_argument("--internal-cip-request-disk",help="Use if you are transferring large files, or if you otherwise expect a lot of data ")
 parser.add_argument("--internal-ile-request-memory",default=4096,type=int,help="ILE memory request in Mb. Only experts should change this.")
 parser.add_argument("--internal-ile-n-max",default=None,type=int,help="Set maximum number of evaluations each ILE worker uses. EXPERTS ONLY")
 parser.add_argument("--internal-ile-inv-spec-trunc-time",default=None,type=float,help="Timescale of inverse spectrum truncation time. Default in pipeline is zero. Should be no more than 1/2 the segment length")
@@ -200,6 +208,8 @@ parser.add_argument("--fmin-template",default=None,type=float,help="Mininum freq
 parser.add_argument("--data-LI-seglen",default=None,type=int,help="If specified, passed to the helper. Uses data selection appropriate to LI. Must specify the specific LI seglen used.")
 parser.add_argument("--choose-data-LI-seglen",action='store_true')
 parser.add_argument("--fix-bns-sky",action='store_true')
+parser.add_argument("--declination",default=0.1,type=float)
+parser.add_argument("--right-ascension",default=0.57,type=float)
 parser.add_argument("--ile-sampler-method",type=str,default=None)
 parser.add_argument("--ile-n-eff",type=int,default=None,help="ILE n_eff passed to helper/downstream. Default internally is 50; lower is faster but less accurate, going much below 10 could be dangerous ")
 parser.add_argument("--cip-sampler-method",type=str,default=None)
@@ -220,6 +230,8 @@ parser.add_argument("--force-chi-max",default=None,type=float,help="Provde this 
 parser.add_argument("--force-chi-small-max",default=None,type=float,help="Provde this value to override the value of chi-max provided") 
 parser.add_argument("--force-ecc-max",default=None,type=float,help="Provde this value to override the value of ecc-max provided")
 parser.add_argument("--force-ecc-min",default=None,type=float,help="Provde this value to override the value of ecc-min provided")
+parser.add_argument("--force-comp-max",default=1000,type=float,help="Provde this value to override the value of the max component mass in CIP provided")
+parser.add_argument("--force-comp-min",default=1,type=float,help="Provde this value to override the value of min component mass in CIP provided")
 parser.add_argument("--force-meanPerAno-max",default=None,type=float,help="Provde this value to override the value of meanPerAno-max provided")
 parser.add_argument("--force-meanPerAno-min",default=None,type=float,help="Provde this value to override the value of meanPerAno-min provided")
 parser.add_argument("--scale-mc-range",type=float,default=None,help="If using the auto-selected mc, scale the ms range proposed by a constant factor. Recommend > 1. . ini file assignment will override this.")
@@ -248,12 +260,15 @@ parser.add_argument("--cip-explode-jobs-auto-scale",type=float,default=None,help
 parser.add_argument("--cip-explode-jobs-dag",type=float,default=None,help="Uses subdag for CIP, with many retries - adaptively will terminate at target work level")
 parser.add_argument("--cip-quadratic-first",action='store_true')
 parser.add_argument("--cip-sigma-cut",default=None,type=float,help="sigma-cut is an error threshold for CIP.  Passthrough")
-parser.add_argument("--n-output-samples",type=int,default=5000,help="Number of output samples generated in the final iteration")
+parser.add_argument("--n-output-samples",type=int,default=5000,help="Number of output samples generated in the interim iteration")
+parser.add_argument("--n-output-samples-last",type=int,default=20000,help="Number of output samples generated in the final iteration")
+parser.add_argument("--internal-last-iteration-extrinsic-samples-per-ile",default=5,type=int,help="Draw this many samples from each ILE job")
 parser.add_argument("--internal-cip-cap-neff",type=int,default=500,help="Largest value for CIP n_eff to use for *non-final* iterations. ALWAYS APPLIED. ")
 parser.add_argument('--internal-cip-tripwire',type=float,help="Passed to CIP")
 parser.add_argument("--internal-cip-temper-log",action='store_true',help="Use temper_log in CIP.  Helps stabilize adaptation for high q for example")
 parser.add_argument("--internal-cip-request-memory",default=None,type=int,help="ILE memory request in Mb. Only experts should change this.")
 parser.add_argument("--internal-ile-sky-network-coordinates",action='store_true',help="Passthrough to ILE ")
+parser.add_argument("--internal-ile-sky-network-coordinates-raw",action='store_true',help="Passthrough to ILE ")
 parser.add_argument("--internal-ile-rotate-phase", action='store_true')
 parser.add_argument("--internal-loud-signal-mitigation-suite",action='store_true',help="Enable more aggressive adaptation - make sure we adapt in distance, sky location, etc rather than use uniform sampling, because we are constraining normally subdominant parameters")
 parser.add_argument("--internal-ile-freezeadapt",action='store_true',help="Passthrough to ILE ")
@@ -356,6 +371,7 @@ if opts.internal_loud_signal_mitigation_suite:
 # Default prior for aligned analysis should be z prior !
 if opts.assume_nonprecessing or opts.approx == "IMRPhenomD":
     prior_args_lookup["default"] = prior_args_lookup["zprior_aligned"]
+    opts.internal_puff_transverse=False
 
 
 if opts.ile_xpu:
@@ -651,8 +667,10 @@ else:
         npts_it = 1500
 if is_analysis_eccentric:
     cmd += " --assume-eccentric "
+    npts_it = int(npts_it*1.5)
     if opts.use_meanPerAno:
         cmd += " --use-meanPerAno "
+        npts_it = int(npts_it*1.5)
 if opts.assume_highq:
     cmd+= ' --assume-highq  --force-grid-stretch-mc-factor 2'  # the mc range, tuned to equal-mass binaries, is probably too narrow. Workaround until fixed in helper
     npts_it =1000
@@ -832,7 +850,7 @@ except:
 instructions_ile = np.loadtxt("helper_ile_args.txt", dtype=str)  # should be one line
 line = ' '.join(instructions_ile)
 if opts.internal_ile_n_max:
-    line = line.replace('--n-max 4000000 ', str(opts.internal_ile_n_max)+" ")
+    line = line.replace('--n-max 4000000 ', '--n-max ' + str(opts.internal_ile_n_max)+" ")
 line += " --l-max " + str(opts.l_max) 
 if 'data-start-time' in line and 's1z' in event_dict:  # only call this if we have (a) fixed time interval and (b) CBC parameters for event
     # Print warnings based on duration and fmin
@@ -862,11 +880,14 @@ if (opts.use_ini is None) and not('--d-max' in line):
     line += " --d-max " + str(dmax_guess)
 if opts.ile_distance_prior:
     line += " --d-prior {} ".format(opts.ile_distance_prior)
+if opts.fix_bns_sky:
+    line +=" --declination " + str(opts.declination) + " --right-ascension " + str(opts.right_ascension)
+    line = line.replace('--declination-cosine-sampler', '') # if we are pinning dec, we aren't using a cosine coordinate. Don't mess up.
 if opts.ile_force_gpu:
     line +=" --force-gpu-only "
 sur_location_prefix = "my_surrogates/nr_surrogates/"
 if 'GW_SURROGATE' in os.environ:
-    sur_location_prefix=''
+    sur_location_prefix='surrogate_downloads/'
 if opts.use_osg:
     sur_location_prefix = "/"
 if opts.use_gwsignal:
@@ -897,6 +918,8 @@ if not(opts.ile_sampler_method is None):
     line += " --sampler-method {} ".format(opts.ile_sampler_method)
 if opts.internal_ile_sky_network_coordinates:
     line += " --internal-sky-network-coordinates "
+if opts.internal_ile_sky_network_coordinates_raw:
+    line += " --internal-sky-network-coordinates-raw "
 if opts.ile_no_gpu or opts.ile_sampler_method ==  "AV":  # make sure we are using the standard code path if not using GPUs
     line += " --force-xpy " 
 if opts.internal_ile_force_noreset_adapt:
@@ -949,7 +972,7 @@ with open("helper_cip_arg_list.txt",'r') as f:
 if opts.cip_explode_jobs_auto and event_dict["SNR"]:
     snr = event_dict["SNR"]
     q = P.m2/P.m1
-    n_max_jobs=200
+    n_max_jobs=1000
     n_jobs_normal_guess =  2+2*int( (1./q)*np.power(np.max([(snr/15),1]), 1.3) )  # increase number of workers linearly with SNR**1.3 and with mass ratio
     n_jobs_normal_actual = np.min([n_jobs_normal_guess,n_max_jobs])
     n_jobs_final_actual = np.min([2*n_jobs_normal_guess,n_max_jobs])
@@ -962,7 +985,13 @@ if opts.cip_explode_jobs_auto and event_dict["SNR"]:
     print("  AUTO-EXPLODE GUESS {} {} {} ", n_jobs_normal_guess, n_jobs_normal_actual,n_jobs_final_actual)
     opts.cip_explode_jobs = n_jobs_normal_actual
     opts.cip_explode_jobs_last = n_jobs_final_actual
+if opts.cip_explode_jobs_auto:
+     n_eff_last_target_orig = opts.n_output_samples_last/opts.cip_explode_jobs_last
+     if n_eff_last_target_orig > 300:
+          opts.cip_explode_job_last = int(opts.n_output_samples_last/300)
+          print("  LARGE OUTPUT SAMPLES, CHANGING FINAL EXPLODE to keep n_eff in CIP reasonable ", opts.cip_explode_job_last)
 
+    
 # Add arguments to the file we will use
 instructions_cip = list(map(lambda x: x.rstrip().split(' '), raw_lines))#np.loadtxt("helper_cip_arg_list.txt", dtype=str)
 n_iterations =0
@@ -1002,8 +1031,8 @@ for indx in np.arange(len(instructions_cip)):
     n_eff_expected_max_hard = 1e-7 * n_max_cip
     print( " cip iteration group {} : n_eff likely will be between {} and {}, you are asking for at least {} and targeting {}".format(indx,n_eff_expected_max_easy, n_eff_expected_max_hard, n_sample_min_per_worker,n_eff_cip_here))
 
-    line +=" --n-output-samples {}  --n-eff {} --n-max {}  --fail-unless-n-eff {}  ".format(int(n_sample_target/n_workers), n_eff_cip_here, n_max_cip,n_sample_min_per_worker)
-    if not(opts.allow_subsolar):
+    line +=" --n-output-samples {}  --n-eff {} --n-max {}  --fail-unless-n-eff {}  --downselect-parameter m2 --downselect-parameter-range [{},{}] ".format(int(n_sample_target/n_workers), n_eff_cip_here, n_max_cip,n_sample_min_per_worker, opts.force_comp_min,opts.force_comp_max)
+    if not(opts.allow_subsolar or opts.force_comp_min or opts.force_comp_max):
         line += "  --downselect-parameter m2 --downselect-parameter-range [1,1000] "
     if not(opts.cip_fit_method is None):
         line = line.replace('--fit-method gp ', '--fit-method ' + opts.cip_fit_method)  # should not be called, see --force-fit-method argument to helper
@@ -1108,15 +1137,33 @@ for indx in np.arange(len(instructions_cip)):
         line += " --fit-save-gp my_gp "  # fiducial filename, stored in each iteration
     if opts.assume_eccentric:
         if opts.use_meanPerAno:
-            if not(opts.internal_use_aligned_phase_coordinates):
-                line = line.replace('parameter mc', 'parameter mc --parameter eccentricity --use-eccentricity --parameter meanPerAno --use-meanPerAno')
-            else:
-                line = line.replace('parameter-nofit mc', 'parameter-nofit mc --parameter eccentricity --use-eccentricity --parameter meanPerAno --use-meanPerAno')
+            line += " --parameter meanPerAno --use-meanPerAno "
+        if opts.use_eccentricity_squared:
+            line += " --use-eccentricity --parameter eccentricity_squared "
         else:
-            if not(opts.internal_use_aligned_phase_coordinates):
-                line = line.replace('parameter mc', 'parameter mc --parameter eccentricity --use-eccentricity')
-            else:
-                line = line.replace('parameter-nofit mc', 'parameter-nofit mc --parameter eccentricity --use-eccentricity')
+            line += " --use-eccentricity --parameter eccentricity "
+        # if opts.use_eccentricity_squared:
+        #     if opts.use_meanPerAno:
+        #         if not(opts.internal_use_aligned_phase_coordinates):
+        #             line = line.replace('parameter mc', 'parameter mc --parameter eccentricity_squared --use-eccentricity --parameter meanPerAno --use-meanPerAno')
+        #         else:
+        #             line = line.replace('parameter-nofit mc', 'parameter-nofit mc --parameter eccentricity_squared --use-eccentricity --parameter meanPerAno --use-meanPerAno')
+        #     else:
+        #         if not(opts.internal_use_aligned_phase_coordinates):
+        #             line = line.replace('parameter mc', 'parameter mc --parameter eccentricity_squared --use-eccentricity')
+        #         else:
+        #             line = line.replace('parameter-nofit mc', 'parameter-nofit mc --parameter eccentricity_squared --use-eccentricity')
+        # else:
+        #     if opts.use_meanPerAno:
+        #         if not(opts.internal_use_aligned_phase_coordinates):
+        #              line = line.replace('parameter mc', 'parameter mc --parameter eccentricity --use-eccentricity --parameter meanPerAno --use-meanPerAno')
+        #         else:
+        #              line = line.replace('parameter mc', 'parameter mc --parameter eccentricity --use-eccentricity --parameter meanPerAno --use-meanPerAno')
+        #     else:
+        #         if not(opts.internal_use_aligned_phase_coordinates):
+        #             line = line.replace('parameter mc', 'parameter mc --parameter eccentricity --use-eccentricity')
+        #         else:
+        #             line = line.replace('parameter-nofit mc', 'parameter-nofit mc --parameter eccentricity --use-eccentricity')
         if not(opts.force_ecc_max is None):
             ecc_max = opts.force_ecc_max
             line += " --ecc-max {}  ".format(ecc_max)
@@ -1138,6 +1185,18 @@ if opts.cip_quadratic_first:
     lines[0]=lines[0].replace(' --fit-method gp ', ' --fit-method quadratic ')
     lines[0]=lines[0].replace(' --parameter delta_mc ', ' --parameter eta ')   # almost without fail we are using mc, delta_mc, xi  as zeroth layer
 
+if opts.assume_eccentric:
+    # iteration 0 is eccentricity_squared and nofit meanPerAno
+    lines[0] = lines[0].replace('--parameter eccentricity ','--parameter eccentricity_squared ')
+    if opts.use_meanPerAno:
+        lines[0] = lines[0].replace('--parameter meanPerAno ','--parameter-nofit meanPerAno ')
+        if opts.internal_cip_use_periodic_ecc_vars:
+            extra_line  =lines[0].replace('parameter eccentricity_squared', 'parameter-implied ecc_cos_meanPerAno --parameter-implied ecc_sin_meanPerAno --parameter-nofit eccentricity')
+            lines.insert(1,extra_line)
+            n_iterations +=1 
+            #for indx in range(2, len(lines)):
+            #lines[indx] = lines[indx].replace('parameter eccentricity ', 'parameter-implied ecc_cos_meanPerAno --parameter-implied ecc_sin_meanPerAno --parameter-nofit eccentricity ')
+            #lines[indx] = lines[indx].replace('parameter meanPerAno' 'parameter-nofit meanPerAno')
 
 if opts.internal_use_amr:
     lines =[ ] 
@@ -1193,16 +1252,16 @@ if opts.assume_matter:
 #    puff_params += " --parameter LambdaTilde "  # should already be present
     puff_max_it +=5   # make sure we resolve the correlations
 if opts.assume_eccentric:
-        puff_params += " --parameter eccentricity --downselect-parameter eccentricity --downselect-parameter-range [{},{}] ".format(opts.force_ecc_min,opts.force_ecc_max)
-if opts.use_meanPerAno:
-        puff_params += " --parameter meanPerAno --downselect-parameter meanPerAno --downselect-parameter-range [{},{}] ".format(opts.force_meanPerAno_min,opts.force_meanPerAno_max)
+        puff_params += " --downselect-parameter eccentricity --downselect-parameter-range [{},{}] ".format(opts.force_ecc_min,opts.force_ecc_max)
 if opts.assume_highq:
         puff_params = puff_params.replace(' delta_mc ', ' eta ')  # use natural coordinates in the high q strategy. May want to do this always
         puff_max_it +=3
                                                                                                                                 
 with open("args_puff.txt",'w') as f:
         puff_args =''  # note used below
-        if opts.force_chi_max and not(opts.force_chi_small_max):
+        if opts.assume_nospin:
+            puff_args=puff_params
+        elif opts.force_chi_max and not(opts.force_chi_small_max):
             puff_args = puff_params + " --downselect-parameter chi1 --downselect-parameter-range [0,{}]  ".format(opts.force_chi_max)
         elif not(opts.force_chi_max) and (opts.force_chi_small_max):
             puff_args = puff_params + " --downselect-parameter chi2 --downselect-parameter-range [0,{}]  ".format(opts.force_chi_small_max)
@@ -1304,6 +1363,8 @@ if not(opts.internal_use_amr) or opts.internal_use_amr_puff:
     cmd+= " --puff-exe `which util_ParameterPuffball.py` --puff-cadence 1 --puff-max-it " + str(puff_max_it)+ " --puff-args `pwd`/args_puff.txt "
 if opts.assume_eccentric:
     cmd += " --use-eccentricity "
+    if opts.sample_eccentricity_squared:
+        cmd += " --use-eccentricity-squared-sampling "
     if opts.use_meanPerAno:
         cmd += " --use-meanPerAno "
 if opts.calibration_reweighting and (not opts.bilby_pickle_file):
@@ -1395,13 +1456,17 @@ if not(opts.ile_no_gpu):
 if opts.ile_xpu:
     cmd += " --request-xpu-ILE "
 if opts.add_extrinsic:
-    cmd += " --last-iteration-extrinsic --last-iteration-extrinsic-nsamples {} ".format(opts.n_output_samples)
+    cmd += " --last-iteration-extrinsic --last-iteration-extrinsic-nsamples {} ".format(opts.n_output_samples_last)
+    if opts.internal_last_iteration_extrinsic_samples_per_ile:
+        cmd += " --last-iteration-extrinsic-samples-per-ile {}".format(opts.internal_last_iteration_extrinsic_samples_per_ile)
     if opts.add_extrinsic_time_resampling:
         cmd+= " --last-iteration-extrinsic-time-resampling "
 if opts.batch_extrinsic:
     cmd += " --last-iteration-extrinsic-batched-convert "
 if opts.internal_ile_request_disk:
     cmd += " --ile-request-disk {} ".format(opts.internal_ile_request_disk)
+if opts.internal_cip_request_disk:
+    cmd += " --cip-request-disk {} ".format(opts.internal_ile_request_disk)
 if opts.use_ile_subdags:
     cmd += " --ile-group-subdag "
 if opts.cip_explode_jobs_dag:  # note name does not match name used in next level below ! Beware!
@@ -1459,6 +1524,9 @@ if opts.calibration_reweighting:
         my_extra_string = ' --use-gwsignal '
     if opts.manual_extra_ile_args:
          my_extra_string += ' ' + opts.manual_extra_ile_args + ' '
+    if opts.use_ini:
+        fref = unsafe_config_get(config,['engine','fref'])
+        my_extra_string += ' --fref {} '.format(fref)
     if (opts.internal_mitigate_fd_J_frame =="L_frame"):
         my_extra_string += ' --internal-waveform-fd-L-frame '
     cmd +=" --calibration-reweighting-initial-extra-args='  {}' ".format(my_extra_string)

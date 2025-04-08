@@ -14,6 +14,8 @@ from asimov.utils import set_directory
 from asimov.pipeline import Pipeline, PipelineException, PipelineLogger
 from asimov.pipeline import PESummaryPipeline
 
+from asimov.utils import update
+
 try: 
     from asimov import auth
     my_auth_decorator = auth.refresh_scitoken
@@ -39,14 +41,18 @@ class Rift(Pipeline):
 
     def __init__(self, production, category=None):
         super(Rift, self).__init__(production, category)
-        self.logger = logger
+        # Logger set by top-level class
+#        self.logger = logger.getChild(
+#            f"analysis.{production.event.name}/{production.name}"
         self.logger.info("Using the RIFT pipeline (rift.py)")
         if 'RIFT_ASIMOV_INI' in os.environ:
             self.config_template = os.getenv('RIFT_ASIMOV_INI')
         else:
             # FIXME: should use importlib in future!
-            import RIFT.lalsimutils
-            self.config_template = RIFT.lalsimutils.__file__.replace("lalsimutils.py","asimov/rift.ini")
+#            import RIFT.lalsimutils
+#            self.config_template = RIFT.lalsimutils.__file__.replace("lalsimutils.py","asimov/rift.ini")
+            from importlib import resources as impresources
+            self.config_template = str(impresources.files("RIFT"))+"/asimov/rift.ini"
         if not production.pipeline.lower() == "rift":
             raise PipelineException
 
@@ -70,6 +76,31 @@ class Rift(Pipeline):
             for section_arg in required_args[section]:
                 if section_arg not in section_data:
                     section_data[section_arg] = {}
+    def _find_posterior(self):
+        """
+        Find the input posterior samples.
+        """
+        if self.production.dependencies:
+            productions = {}
+            for production in self.production.event.productions:
+                productions[production.name] = production
+            for previous_job in self.production.dependencies:
+                self.logger.info("RIFT: previous job assets" + str( productions[previous_job].pipeline.collect_assets()))
+                try:
+                    if "samples" in productions[previous_job].pipeline.collect_assets():
+                        posterior_file = productions[previous_job].pipeline.collect_assets()['samples']
+                        if "dataset" not in self.production.meta:
+                            import h5py
+                            with h5py.File(posterior_file,'r') as f:
+                                keys = list(f.keys())
+                            keys.remove('version')
+                            keys.remove('history')
+                            self.production.meta['dataset'] = keys[0]
+                        return posterior_file
+                except Exception:
+                    pass
+        else:
+            self.logger.error("Could not find an analysis providing posterior samples to analyse.")
 
     def after_completion(self):
 
@@ -89,6 +120,7 @@ class Rift(Pipeline):
           # concatenate all cache files into main local.cache directory
           for previous_job in self.production.dependencies:
             print("assets", productions[previous_job].pipeline.collect_assets())
+            self.logger.info(" Assets for RIFT job " + str(productions[previous_job].pipeline.collect_assets() ) )
 
             if "caches" in productions[previous_job].pipeline.collect_assets():
                 cache_files = productions[previous_job].pipeline.collect_assets()['caches'].values()
@@ -99,10 +131,13 @@ class Rift(Pipeline):
 
     def before_config(self, dryrun=False):
         """
-        Convert the text-based PSD to an XML psd if the xml doesn't exist already.
+        - Convert the text-based PSD to an XML psd if the xml doesn't exist already.
+        - Find bilby ini file (needed for calmarg)
+        - Find all-event priors and copy to production, overwriting
         """
         event = self.production.event
         category = config.get("general", "calibration_directory")
+        # XML PSDs
         self.logger.info("Checking for XML format PSDs")
         if len(self.production.get_psds("xml")) == 0 and "psds" in self.production.meta:
             self.logger.info("Did not find XML format PSDs")
@@ -125,7 +160,35 @@ class Rift(Pipeline):
                         commit_message=f"Added the xml format PSD for {ifo}.",
                     )
                     self.logger.info(f"Saved at {saveloc}")
+        # calmarg: find bilby ini file if needed
+        self.logger.info(" About to check for calmarg ")
+        if 'likelihood' in self.production.meta['sampler']:
+                if 'calibration' in self.production.meta['sampler']['likelihood']:
+                    if 'sample' in self.production.meta['sampler']['likelihood']['calibration'] and not('bilby ini file' in self.production.meta['sampler']['likelihood']['calibration']):
+                        
+                        self.logger.info(" RIFT calmarg: checking for bilby production to provide ini file (assume compatible)")
+                        config_files = self.production.event.repository.find_prods(self.production.name, self.category) # finds location of the config file, in full path, BUT for this thing!
+                        config_file_dir = os.path.split(config_files[0])[0]
+                        import sys, glob
+#                        print(config_files,config_file_dir,file=sys.stderr)
+                        bilby_ini_list = glob.glob(config_file_dir+"/*bilby*ini")
+                        if len(bilby_ini_list) ==0:
+                            raise PipelineException(" Cannot find bilby ini file needed to prepare RIFT calmarg postprocessing - try again or fix dependencies ",production=self.production.name)
+                        bilby_ini = bilby_ini_list[0]
+#                        print(bilby_ini, file=sys.stderr)
+                        self.logger.info(" RIFT calmarg: found ini file {} ".format(bilby_ini))
+                        self.production.meta['sampler']['likelihood']['calibration']['bilby ini file'] = bilby_ini
+        # general: check for global priors. Note this SHOULD not be needed, but peconfigurator seems to create defaults that override the per-event settings
+        # self.logger.info(" Priors: check global for event ")
+        # if hasattr(self.production.event,'priors'):
+        #     # issue: global priors may be overridden by accidental bug/issue with asimov setup
+        #     #            import sys
+        #     #            print(self.production.event['priors'],file=sys.stderr)
+        if 'use global priors' in self.production.meta['scheduler']: # only do override if specifically requiested, so we can correctly make local settings a priority
+                 self.logger.info(" Updating priors using global event info, likely from peconfigurator - workaround due to weird ledger defaults: {} ".format(self.production.event.meta['priors']))
+                 self.production.meta['priors'] = self.production.event.meta['priors']  # where peconfigurator puts its crap
 
+                    
     @my_auth_decorator
     def build_dag(self, user=None, dryrun=False):
         """
@@ -293,6 +356,43 @@ class Rift(Pipeline):
             if self.production.meta["waveform"]["non-spin"]:
                 command += ["--assume-nospin"]
 
+        # Generate initial samples, based on previous PE results
+        if 'bootstrap upstream' in self.production.meta['scheduler']:
+            # get posterior file
+            posterior_file = self._find_posterior()
+            self.logger.info("  Bootstrap requested, attempting with file {}".format(posterior_file) )                        
+            if posterior_file:
+                # convert posterior samples to temp location
+                bootstrap_file = os.path.join(
+                        self.production.event.repository.directory,
+                        "C01_offline",
+                        f"{self.production.name}_bootstrap.xml.gz",
+                    )
+                # test if bootstrap file already exists
+                if not(os.path.exists(bootstrap_file)):
+                       import RIFT.misc.samples_utils
+                       bootstrap_file_ascii = str(bootstrap_file) + "_ascii"
+                       RIFT.misc.samples_utils.dump_pesummary_samples_to_file_as_rift(posterior_file, self.production.meta['dataset'], bootstrap_file_ascii)
+                       extra_args =''
+                       # bootstrap eccentricity from samples
+                       if 'eccentric' in self.production.meta['likelihood']['assume']:
+                           extra_args += ' --add-eccentricity-params  '
+                           if 'force-ecc-max' in self.production.meta['sampler']:
+                               extra_args+= ' --ecc-max {} '.format(self.production.meta['sampler']['force-ecc-max'])
+                       # zero out transverse spin if needed
+                       if 'nonprecessing' in self.production.meta['likelihood']['assume']:
+                           extra_args += " --use-aligned-spin "
+                       os.system("convert_output_format_inference2ile --posterior-samples {} --output {} {} ".format(bootstrap_file_ascii, bootstrap_file, extra_args) )
+                self.bootstrap="manual"
+
+                # bootstrap coinc file !  note the intention will be to OVERWRITE the existing coinc (or to deal with the absence of one for this event)
+                if  'bootstrap coinc' in self.production.meta['scheduler']:
+                    coinc_file = os.path.join(
+                        self.production.event.repository.directory,
+                        "C01_offline",
+                        'coinc.xml')
+                    os.system("util_SimInspiralToCoinc.py --sim-xml {} --output {} ".format(bootstrap_file, coinc_file) )
+                    
         command += [
             "--calibration",
             f"{calibration}",
@@ -330,6 +430,8 @@ class Rift(Pipeline):
                         "C01_offline",
                         f"{self.production.name}_bootstrap.xml.gz",
                     )
+                    if bootstrap_file[0] != '/': # need absolute path!
+                        bootstrap_file = os.getcwd() + "/" + bootstrap_file
                 else:
                     bootstrap_file = "{self.production.name}_bootstrap.xml.gz"
             else:
@@ -363,16 +465,16 @@ class Rift(Pipeline):
                 if err:
                     self.production.status = "stuck"
                     if hasattr(self.production.event, "issue_object"):
-                        self.logger.info(out, production=self.production)
-                        self.logger.error(err, production=self.production)
+                        self.logger.info(out) #, production=self.production)
+                        self.logger.error(err) #, production=self.production)
                         raise PipelineException(
                             f"DAG file could not be created.\n{command}\n{out}\n\n{err}",
                             issue=self.production.event.issue_object,
                             production=self.production.name,
                         )
                     else:
-                        self.logger.info(out, production=self.production)
-                        self.logger.error(err, production=self.production)
+                        self.logger.info(out) #, production=self.production)
+                        self.logger.error(err) #, production=self.production)
                         raise PipelineException(
                             f"DAG file could not be created.\n{command}\n{out}\n\n{err}",
                             production=self.production.name,
@@ -458,7 +560,7 @@ class Rift(Pipeline):
                     dagman = subprocess.Popen(
                         command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT
                     )
-                    self.logger.info(command, production=self.production)
+                    self.logger.info(command) #, production=self.production)
             except FileNotFoundError as exception:
                 raise PipelineException(
                     "It looks like condor isn't installed on this system.\n"
@@ -530,12 +632,12 @@ class Rift(Pipeline):
             time_mod_rescue = os.path.getmtime(last_rescue)
         else:
             time_mod_rescue = time_mod_out - 100  # no rescues
-        if count < 100 and (time_mod_out > time_mod_rescue+30): # some buffer in seconds for file i/o
-            print("   ... still going, leaving it alone ")
+        if count < 100 and (time_mod_out > time_mod_rescue+300): # some buffer in seconds for file i/o. Note this time can be LONG.
+            print("   ... probably still going, leaving it alone ")
             return None
         if "allow ressurect" in self.production.meta:
             count = 0
-        if (count < 90) and (
+        if (count < 900) and (
             len(
                 glob.glob(
                     os.path.join(
@@ -633,4 +735,8 @@ class Rift(Pipeline):
             rundir = os.path.abspath(self.production.rundir)
         else:
             rundir = self.production.rundir
-        return glob.glob(os.path.join(rundir, "extrinsic_posterior_samples.dat"))
+        samples =  glob.glob(os.path.join(rundir, "extrinsic_posterior_samples.dat"))
+        rewt_file_name  = os.path.join(rundir,'reweighted_posterior_samples.dat')
+        if os.path.exists(rewt_file_name):
+            return glob.glob(rewt_file_name)
+        return samples

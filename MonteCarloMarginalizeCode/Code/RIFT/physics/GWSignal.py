@@ -16,7 +16,7 @@ import numpy as np
 import astropy.units as u
 from astropy.time import Time
 from gwpy.timeseries import TimeSeries
-
+import astropy.constants as ac
 has_gws= False
 try:
     # Warning: prints stupid messages to stdout
@@ -52,7 +52,7 @@ def hlmoff(P, Lmax=2,approx_string=None,**kwargs):
     return hlmsF
 
 
-def hlmoft(P, Lmax=2,approx_string=None,no_trust_align_method=None,**kwargs):
+def hlmoft(P, Lmax=2,approx_string=None,no_trust_align_method=None,internal_phase_shift=np.pi/2, **kwargs):
     """
     gwsignal.  Note the call will use approx_string, NOT a lalsimulation mode ID.  If approx_string is none, use P.approx but convert to string
     """
@@ -134,6 +134,8 @@ def hlmoft(P, Lmax=2,approx_string=None,no_trust_align_method=None,**kwargs):
             vectaper= 0.5 - 0.5*np.cos(np.pi*np.arange(ntaper)/(1.*ntaper))
             # Taper at the start of the segment
             h.data.data[:ntaper]*=vectaper
+        # Apply phase shift
+        h.data.data *= np.exp(1j*internal_phase_shift*mode[1])  # exp( i m phi_shift)
         # Add to structure
         hlmT[mode] = h
 
@@ -142,12 +144,26 @@ def hlmoft(P, Lmax=2,approx_string=None,no_trust_align_method=None,**kwargs):
     if no_trust_align_method == 'peak':
         rhosq = np.zeros(TDlen)
         for mode in hlmT:
-            rhosq += np.abs(hlmT.data.data)**2
+            rhosq += np.abs(hlmT[mode].data.data)**2
         indx_max =np.argmax(rhosq)
         new_epoch = - indx_max*P.deltaT
         for mode in hlmT:
-            hlmT.epoch = new_epoch
-        
+            hlmT[mode].epoch = new_epoch
+    if approx_string_here == 'TEOBResumSDALI':
+        nu = P.m1*P.m2/((P.m1+P.m2)**2)
+        distance_rescaling = (
+            (
+                nu
+                * (P.m1 + P.m2)
+                / P.dist
+                * ac.G
+                / ac.c ** 2
+            )
+            .value
+        )
+        for mode in hlmT:
+            hlmT[mode].data.data = distance_rescaling*hlmT[mode].data.data
+            
     return hlmT
 
 

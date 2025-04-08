@@ -766,6 +766,7 @@ srate=4096
 if not(opts.use_ini is None):
     use_ini=True
     config = ConfigParser.ConfigParser()
+    config.optionxform=str
     config.read(opts.use_ini)
 
     # Overwrite general settings
@@ -1005,7 +1006,14 @@ if not(opts.manual_mc_max is None):
     mc_max = opts.manual_mc_max
 mc_range_str_cip = " --mc-range ["+str(mc_min)+","+str(mc_max)+"]"
 if not(opts.force_mc_range is None):
+    # CIP : force global
     mc_range_str_cip = " --mc-range " + opts.force_mc_range
+    # Initial grid: limited: see logic below
+    line_here = list(map(float,opts.force_mc_range.replace('[','').replace(']','').split(',') ))
+    mc_min_lim,mc_max_lim = line_here
+    mc_min = np.max([mc_min_tight,mc_min_lim])
+    mc_max = np.min([mc_max_tight,mc_max_lim])
+    mc_range_str = " [{},{}] ".format(mc_min,mc_max)  # for grid placement, stay in range.
 elif opts.limit_mc_range:
     line_here = list(map(float,opts.limit_mc_range.replace('[','').replace(']','').split(',') ))
     mc_min_lim,mc_max_lim = line_here
@@ -1223,8 +1231,10 @@ if opts.propose_initial_grid_fisher: # and (P.extract_param('mc')/lal.MSUN_SI < 
         grid_size =2500
     if opts.assume_eccentric:
         cmd += " --random-parameter eccentricity --random-parameter-range " + ecc_range_str
+        grid_size = int(grid_size*1.5)
         if opts.use_meanPerAno:
-            cmd += " --random-parameter meanPerAno --random-parameter-range " + meanPerAno_range_str
+            cmd += " --random-parameter meanPerAno --random-parameter-range [0,6.2831]"
+            grid_size = int(grid_size*1.5)
     if "SNR" in event_dict:
         grid_size *= np.max([1,event_dict["SNR"]/15])  # more grid points at higher amplitude. Yes, even though we also contract the paramete range
     if not (opts.force_initial_grid_size is None):
@@ -1280,8 +1290,10 @@ elif opts.propose_initial_grid:
             cmd += " --parameter s1x --parameter-range [0.00001,0.00003] "
     if opts.assume_eccentric:
         cmd += " --random-parameter eccentricity --random-parameter-range " + ecc_range_str
+        grid_size = int(grid_size*1.5)
         if opts.use_meanPerAno:
-            cmd += " --random-parameter meanPerAno --random-parameter-range " + meanPerAno_range_str
+            cmd += " --random-parameter meanPerAno --random-parameter-range [0,6.2831]"
+            grid_size = int(grid_size*1.5)
     if opts.internal_tabular_eos_file:
         cmd += " --tabular-eos-file {} ".format(opts.internal_tabular_eos_file)
         grid_size *=2  # larger grids needed for discrete realization scenarios
@@ -1424,15 +1436,16 @@ if opts.internal_ile_rotate_phase:
 
 
 puff_max_it=0
-helper_puff_args = " --parameter mc --parameter eta --fmin {} --fref {} ".format(opts.fmin_template,opts.fmin_template)
+if event_dict["MChirp"] >25:
+    # at high mass, mc/eta correlation weak, don't want to have eta coordinate degeneracy at q=1 to reduce puff proposals  near there
+    helper_puff_args = " --parameter mc --parameter delta_mc --fmin {} --fref {}  ".format(opts.fmin_template,opts.fmin_template)  
+else:
+    helper_puff_args = " --parameter mc --parameter eta --fmin {} --fref {} ".format(opts.fmin_template,opts.fmin_template)
 if opts.assume_eccentric:
     helper_puff_args += " --parameter eccentricity "
     if opts.use_meanPerAno:
         helper_puff_args += " --parameter meanPerAno "
 
-if event_dict["MChirp"] >25:
-    # at high mass, mc/eta correlation weak, don't want to have eta coordinate degeneracy at q=1 to reduce puff proposals  near there
-    helper_puff_args = " --parameter mc --parameter delta_mc "  
 if opts.propose_fit_strategy:
     puff_max_it= 0
     # Strategy: One iteration of low-dimensional, followed by other dimensions of high-dimensional
@@ -1628,12 +1641,13 @@ if opts.propose_fit_strategy:
             helper_cip_arg_list[indx] += " --lnL-offset " + str( lnL_start*(1.- 1.*indx/(n_levels-1.))  + lnL_end*indx/(n_levels-1.) )
 
     if opts.assume_matter and not(opts.internal_tabular_eos_file) and not(opts.assume_matter_eos):
-        helper_puff_args += " --parameter LambdaTilde  --downselect-parameter s1z --downselect-parameter-range [-0.9,0.9] --downselect-parameter s2z --downselect-parameter-range [-0.9,0.9]  "  # Probably should also aggressively force sampling of low-lambda region
+        # tidal puff, must use BOTH variables. Safer to puff in lambda1, lambda2, which are now flagged as positive-definite variables and puff in log
+        helper_puff_args += " --parameter lambda1 --parameter lambda2 --downselect-parameter s1z --downselect-parameter-range [-0.9,0.9] --downselect-parameter s2z --downselect-parameter-range [-0.9,0.9]  "  # Probably should also aggressively force sampling of low-lambda region
         helper_cip_args += " --input-tides --parameter-implied LambdaTilde  --parameter-nofit lambda2 " # For early fitting, just fit LambdaTilde
         if not(opts.assume_matter_but_primary_bh):
             helper_cip_args+= " --parameter-nofit lambda1 "
         else:
-            helper_puff_args = helper_puff_args.replace(" --parameter LambdaTilde ", " --parameter lambda2 ")  # if primary a BH, only varying lambda2
+            helper_puff_args = helper_puff_args.replace(" --parameter lambda1 --parameter lambda2", " --parameter lambda2 ")  # if primary a BH, only varying lambda2
         # Add LambdaTilde on top of the aligned spin runs
         for indx in np.arange(len(helper_cip_arg_list)):
             helper_cip_arg_list[indx]+= " --input-tides --parameter-implied LambdaTilde  --parameter-nofit lambda2 " 
