@@ -976,7 +976,7 @@ class ChooseWaveformParams:
                 'spin_interp_domain' : 0,
                 # This can be "QNMs" or "constant". Currently it looks like without QNMs enabled gives basically only prior for precessing events (even for low mass events)
                 'ringdown_eulerangles': "QNMs",
-                'use_mode_lm'        : k_coprecessing_frame,
+                'use_mode_lm'        : [1, 0, 4, 8],
                 #                'output_lm'          : k,
 #                'df'                 : P.deltaF,
                 'output_hpc'         : "no"
@@ -1127,7 +1127,7 @@ class ChooseWaveformParams:
                 'spin_interp_domain' : 0,
                 # This can be "QNMs" or "constant". Currently it looks like without QNMs enabled gives basically only prior for precessing events (even for low mass events)
                 'ringdown_eulerangles': "QNMs",
-                'use_mode_lm'        : k_coprecessing_frame,
+                'use_mode_lm'        : [1, 0, 4, 8],
                 #                'output_lm'          : k,
 #                'df'                 : P.deltaF,
                 'output_hpc'         : "no"
