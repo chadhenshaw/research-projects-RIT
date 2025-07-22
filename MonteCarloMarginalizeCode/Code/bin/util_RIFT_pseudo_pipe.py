@@ -336,8 +336,7 @@ opts=  parser.parse_args()
 # Ensure only ONE of the --force-X-grids options is set
 force_grids = [opts.force_scatter_grids, opts.force_plunge_grids, opts.force_zoomwhirl_grids]
 if any(force_grids) and not opts.assume_hyperbolic:
-    parser.error("Using --force-scatter-grids, --force-plunge-grids, or --force-zoomwhirl-grids requires --assume-hyper\
-bolic!")
+    parser.error("Using --force-scatter-grids, --force-plunge-grids, or --force-zoomwhirl-grids requires --assume-hyperbolic!")
 if sum(bool(x) for x in force_grids) > 1:
     parser.error("CANNOT use multiple --force-X-grids options at the same time!")
 

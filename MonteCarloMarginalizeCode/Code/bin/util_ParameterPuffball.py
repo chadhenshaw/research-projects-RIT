@@ -57,7 +57,7 @@ parser.add_argument("--enforce-duration-bound",default=None,type=float,help="If 
 parser.add_argument("--regularize",action='store_true',help="Add some ad-hoc terms based on priors, to help with nearly-singular matricies")
 parser.add_argument('--force-scatter',default=False,action='store_true',help='For hyperbolic analyses forces only scatter grid points.')
 parser.add_argument('--force-plunge',default=False,action='store_true',help='For hyperbolic analyses forces only plunge grid points.')
-parser.add_argument('--force-zoomwhirl',default=False,action='store_true',help='For hyperbolic analyses forces only zoomwhirl grid points.')
+parser.add_argument('--force-zoomwhirl',default=False,action='store_true',help='For hyperbolic analyses forces only capture grid points.')
 opts=  parser.parse_args()
 
 force_options = [opts.force_scatter, opts.force_plunge, opts.force_zoomwhirl]  # Add more if needed
@@ -320,7 +320,7 @@ for indx_P in np.arange(len(P_list)):
             # no need to evaluate if the point is already downselected out
             pass
         else:
-            # removes non-scatter points from the hyperbolic grid
+            # removes non-plunge points from the hyperbolic grid
             hypclass = P.extract_param('hypclass')
             if hypclass == 'plunge':
                 include_item = True
@@ -331,7 +331,7 @@ for indx_P in np.arange(len(P_list)):
             # no need to evaluate if the point is already downselected out
             pass
         else:
-            # removes non-scatter points from the hyperbolic grid
+            # removes non-capture points from the hyperbolic grid
             hypclass = P.extract_param('hypclass')
             if hypclass == 'zoomwhirl':
                 include_item = True

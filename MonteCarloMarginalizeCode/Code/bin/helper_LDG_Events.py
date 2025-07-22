@@ -204,7 +204,7 @@ parser.add_argument("--assume-hyperbolic",action='store_true',help="If present, 
 parser.add_argument("--E0-max", default=1.2,type=float,help="Maximum range of 'E0' allowed.")
 parser.add_argument("--E0-min", default=1.0,type=float,help="Minimum range of 'E0' allowed.")
 parser.add_argument("--pphi0-max", default=10.0,type=float,help="Maximum range of 'p_phi0' allowed.")
-parser.add_argument("--pphi0-min", default=0.0,type=float,help="Minimum range of 'p_phi0' allowed.")
+parser.add_argument("--pphi0-min", default=1.0,type=float,help="Minimum range of 'p_phi0' allowed.")
 parser.add_argument("--use-mtot-coords",action='store_true',help="Configures CIP and PUFF for mtot instead of mc. REQUIRES --force-mtot-range.")
 parser.add_argument("--use-meanPerAno",action='store_true',help="The proposed fit strategy and initial grid will allow for meanPerAno")
 parser.add_argument("--use-EOB-parameters",action='store_true',help="The proposed fit strategy and initial grid will allow for EOB parameters: currently only a6c")
